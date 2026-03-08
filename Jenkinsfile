@@ -54,7 +54,7 @@ pipeline {
         withCredentials([string(credentialsId: 'SLACK_WEBHOOK', variable: 'SLACK_WEBHOOK')]) {
             sh """
                 curl -X POST -H 'Content-type: application/json' \
-                --data '{\"text\":\"✅ Jenkins Build #${env.BUILD_NUMBER} SUCCESS: Smart Parking app deployed successfully. DEV URL: http://13.58.211.204\"}' \
+                --data '{\"text\":\"🚀 Jenkins Build #${env.BUILD_NUMBER}\\nSmart Parking deployment SUCCESS\\n\\nDEV Environment\\nhttp://13.58.211.204\"}'
                 "$SLACK_WEBHOOK"
             """
         }
