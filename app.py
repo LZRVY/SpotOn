@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-from flask import Flask, render_template
-
-app = Flask(__name__)
-=======
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
@@ -44,23 +39,11 @@ def get_db_connection():
     )
     return conn
 
->>>>>>> e8de157 (Session/Auth polish + Jenkins updates)
-
 @app.route("/")
 def home():
     return render_template("index.html")
 
-<<<<<<< HEAD
-# New Route for Login
-@app.route("/login")
-def login():
-    return render_template("login.html")
 
-# New Route for Sign Up
-@app.route("/signup")
-def signup():
-    return render_template("signup.html")
-=======
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -115,7 +98,7 @@ def signup():
     return render_template("signup.html")
 
 
-@app.route("/login", methods=["GET", "POST"])
+@app.route('/login', methods=['GET', 'POST'], strict_slashes=False)
 def login():
     if "user_id" in session:
         return redirect(url_for("dashboard"))
@@ -581,16 +564,11 @@ def logout():
     flash("You have been logged out.", "success")
     return redirect(url_for("home"))
 
->>>>>>> e8de157 (Session/Auth polish + Jenkins updates)
 
 @app.route("/health")
 def health():
     return {"status": "ok"}
-<<<<<<< HEAD
-
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5055)
-=======
+ 
 @app.route("/profile", methods=["GET", "POST"])
 @login_required(role="user")
 def profile():
@@ -726,4 +704,3 @@ def delete_vehicle(vehicle_id):
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5055)
->>>>>>> e8de157 (Session/Auth polish + Jenkins updates)
