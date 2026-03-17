@@ -7,7 +7,7 @@ from functools import wraps
 import os
 
 app = Flask(__name__, template_folder="pages")
-app.secret_key = os.getenv("Zg6V!5B40&%*+:Y6", "dev-secret")
+app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
 app.permanent_session_lifetime = timedelta(minutes=30)
 
 def login_required(role=None):
@@ -27,15 +27,17 @@ def login_required(role=None):
         return wrapper
     return decorator
 
-def get_db_connection():
-    conn = psycopg2.connect(
-        host="localhost",
-        database="smart_parking",
-        user="vyomraj",
-        password="NewStrongPassword123"
-    )
-    return conn
+import os
+import psycopg2
+import psycopg2.extras
 
+def get_db_connection():
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL environment variable is not set")
+
+    conn = psycopg2.connect(database_url)
+    return conn
 
 @app.route("/")
 def home():
