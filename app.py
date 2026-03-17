@@ -3,46 +3,24 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
-from functools import wraps
 
 app = Flask(__name__, template_folder="pages")
-import os
-app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
-app.permanent_session_lifetime = timedelta(seconds=30)
-
-def login_required(role=None):
-    def decorator(f):
-        @wraps(f)
-        def wrapper(*args, **kwargs):
-            if "user_id" not in session:
-                flash("Please log in first.", "error")
-                return redirect(url_for("login"))
-
-            if role and session.get("user_role") != role:
-                flash("Access denied.", "error")
-                return redirect(url_for("home"))
-
-            # Refresh session expiry on each request
-            session.permanent = True
-
-            return f(*args, **kwargs)
-        return wrapper
-    return decorator
+app.secret_key = "change-this-to-a-random-secret-key"
 
 
 def get_db_connection():
     conn = psycopg2.connect(
         host="localhost",
         database="smart_parking",
-        user="postgres",
-        password="Daanish@1642"
+        user="vyomraj",
+        password="NewStrongPassword123"
     )
     return conn
+
 
 @app.route("/")
 def home():
     return render_template("index.html")
-
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -98,10 +76,8 @@ def signup():
     return render_template("signup.html")
 
 
-@app.route('/login', methods=['GET', 'POST'], strict_slashes=False)
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if "user_id" in session:
-        return redirect(url_for("dashboard"))
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
@@ -126,7 +102,6 @@ def login():
             session["user_id"] = str(user["id"])
             session["user_email"] = user["email"]
             session["user_role"] = user["role"]
-            session.permanent = True
 
             flash("Login successful.", "success")
 
@@ -141,8 +116,14 @@ def login():
 
 
 @app.route("/dashboard")
-@login_required(role="user")
 def dashboard():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -194,8 +175,14 @@ def dashboard():
         reservation_history=reservation_history
     )
 @app.route("/operator-dashboard")
-@login_required(role="admin")
 def operator_dashboard():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "admin":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
 
     return render_template(
         "operator_dashboard.html",
@@ -205,8 +192,10 @@ def operator_dashboard():
 
 
 @app.route("/search")
-@login_required()
 def search():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
 
     location = request.args.get("location", "").strip()
     start_time_str = request.args.get("start_time", "").strip()
@@ -262,7 +251,13 @@ def search():
                           AND tstzrange(r.start_time, r.end_time, '[)') &&
                               tstzrange(%s, %s, '[)')
                     )
-                ) AS available_slots
+                ) AS available_slots,
+                EXISTS (
+                    SELECT 1
+                    FROM favorite_locations fl
+                    WHERE fl.user_id = %s
+                      AND fl.parking_lot_id = pl.id
+                ) AS is_favorite
             FROM parking_lots pl
             LEFT JOIN parking_slots ps ON pl.id = ps.lot_id
             WHERE (%s = '' OR pl.name ILIKE %s OR pl.address ILIKE %s)
@@ -277,6 +272,7 @@ def search():
                 slot_type,
                 selected_start,
                 selected_end,
+                session.get("user_id"),
                 location,
                 f"%{location}%",
                 f"%{location}%",
@@ -295,7 +291,13 @@ def search():
                 COUNT(ps.id) FILTER (
                     WHERE ps.is_active = TRUE
                     AND (%s = '' OR ps.slot_type = %s)
-                ) AS available_slots
+                ) AS available_slots,
+                EXISTS (
+                    SELECT 1
+                    FROM favorite_locations fl
+                    WHERE fl.user_id = %s
+                      AND fl.parking_lot_id = pl.id
+                ) AS is_favorite
             FROM parking_lots pl
             LEFT JOIN parking_slots ps ON pl.id = ps.lot_id
             WHERE (%s = '' OR pl.name ILIKE %s OR pl.address ILIKE %s)
@@ -308,6 +310,7 @@ def search():
             (
                 slot_type,
                 slot_type,
+                session.get("user_id"),
                 location,
                 f"%{location}%",
                 f"%{location}%",
@@ -328,11 +331,12 @@ def search():
             "location": lot["address"] if lot["address"] else "Address not available",
             "price_per_hour": lot["price_per_hour"] if lot["price_per_hour"] is not None else 0,
             "available_slots": lot["available_slots"] or 0,
-            "type": lot["parking_type"] if lot["parking_type"] else "Standard Parking"
+            "type": lot["parking_type"] if lot["parking_type"] else "Standard Parking",
+            "is_favorite": lot["is_favorite"],
         })
 
     current_time = datetime.now()
-    now_local = current_time.replace(second=0, microsecond=0) + timedelta(seconds=30)
+    now_local = current_time.replace(second=0, microsecond=0) + timedelta(minutes=1)
 
     return render_template(
         "search.html",
@@ -348,8 +352,10 @@ def search():
         sort_by=sort_by,
     )
 @app.route("/lot/<lot_id>")
-@login_required()
 def lot_details(lot_id):
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
 
     start_time_str = request.args.get("start_time", "").strip()
     end_time_str = request.args.get("end_time", "").strip()
@@ -375,12 +381,18 @@ def lot_details(lot_id):
             pl.address,
             pl.price_per_hour,
             pl.parking_type,
-            COUNT(ps.id) FILTER (WHERE ps.is_active = TRUE) AS available_slots
+            COUNT(ps.id) FILTER (WHERE ps.is_active = TRUE) AS available_slots,
+            EXISTS (
+                SELECT 1
+                FROM favorite_locations fl
+                WHERE fl.user_id = %s
+                  AND fl.parking_lot_id = pl.id
+            ) AS is_favorite
         FROM parking_lots pl
         LEFT JOIN parking_slots ps ON pl.id = ps.lot_id
         WHERE pl.id = %s
         GROUP BY pl.id, pl.name, pl.address, pl.price_per_hour, pl.parking_type
-    """, (lot_id,))
+    """, (session.get("user_id"), lot_id))
     lot = cur.fetchone()
 
     if not lot:
@@ -439,10 +451,15 @@ def lot_details(lot_id):
         start_time=start_time_str,
         end_time=end_time_str
     )
-
 @app.route("/reserve/<slot_id>", methods=["POST"])
-@login_required(role="user")
 def reserve_slot(slot_id):
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Only users can create reservations.", "error")
+        return redirect(url_for("search"))
 
     lot_id = request.form.get("lot_id")
     start_time_str = request.form.get("start_time", "").strip()
@@ -514,8 +531,14 @@ def reserve_slot(slot_id):
 
     return redirect(url_for("lot_details", lot_id=lot_id))
 @app.route("/cancel-reservation/<reservation_id>", methods=["POST"])
-@login_required(role="user")
 def cancel_reservation(reservation_id):
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Only users can cancel reservations.", "error")
+        return redirect(url_for("home"))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -568,10 +591,15 @@ def logout():
 @app.route("/health")
 def health():
     return {"status": "ok"}
- 
 @app.route("/profile", methods=["GET", "POST"])
-@login_required(role="user")
 def profile():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -623,8 +651,14 @@ def profile():
 
 
 @app.route("/vehicles", methods=["GET", "POST"])
-@login_required(role="user")
 def vehicles():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -681,8 +715,14 @@ def vehicles():
 
 
 @app.route("/delete-vehicle/<vehicle_id>", methods=["POST"])
-@login_required(role="user")
 def delete_vehicle(vehicle_id):
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -701,6 +741,211 @@ def delete_vehicle(vehicle_id):
     flash("Vehicle deleted successfully.", "success")
     return redirect(url_for("vehicles"))
 
+import secrets
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+
+        if not email:
+            flash("Please enter your email address.", "error")
+            return render_template("forgot_password.html")
+
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT id, email
+            FROM users
+            WHERE email = %s
+        """, (email,))
+        user = cur.fetchone()
+
+        if user:
+            token = secrets.token_urlsafe(32)
+
+            cur.execute("""
+                INSERT INTO password_resets (user_id, token, expires_at, used)
+                VALUES (%s, %s, now() + interval '1 hour', FALSE)
+            """, (user["id"], token))
+            conn.commit()
+
+            reset_link = url_for("reset_password", token=token, _external=True)
+            print("\n=== PASSWORD RESET LINK ===")
+            print(reset_link)
+            print("===========================\n")
+
+        cur.close()
+        conn.close()
+
+        flash("If an account with that email exists, a reset link has been generated.", "success")
+        return redirect(url_for("login"))
+
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT pr.id, pr.user_id, pr.token, pr.expires_at, pr.used
+        FROM password_resets pr
+        WHERE pr.token = %s
+    """, (token,))
+    reset_record = cur.fetchone()
+
+    if not reset_record:
+        cur.close()
+        conn.close()
+        flash("Invalid reset link.", "error")
+        return redirect(url_for("forgot_password"))
+
+    cur.execute("""
+        SELECT now() AS current_time
+    """)
+    current_time_row = cur.fetchone()
+    current_time = current_time_row["current_time"]
+
+    if reset_record["used"]:
+        cur.close()
+        conn.close()
+        flash("This reset link has already been used.", "error")
+        return redirect(url_for("forgot_password"))
+
+    if current_time > reset_record["expires_at"]:
+        cur.close()
+        conn.close()
+        flash("This reset link has expired.", "error")
+        return redirect(url_for("forgot_password"))
+
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not password or not confirm_password:
+            flash("Please fill in both password fields.", "error")
+            return render_template("reset_password.html", token=token)
+
+        if len(password) < 6:
+            flash("Password must be at least 6 characters long.", "error")
+            return render_template("reset_password.html", token=token)
+
+        if password != confirm_password:
+            flash("Passwords do not match.", "error")
+            return render_template("reset_password.html", token=token)
+
+        password_hash = generate_password_hash(password)
+
+        cur.execute("""
+            UPDATE users
+            SET password_hash = %s
+            WHERE id = %s
+        """, (password_hash, reset_record["user_id"]))
+
+        cur.execute("""
+            UPDATE password_resets
+            SET used = TRUE
+            WHERE id = %s
+        """, (reset_record["id"],))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        flash("Password reset successfully. Please log in.", "success")
+        return redirect(url_for("login"))
+
+    cur.close()
+    conn.close()
+    return render_template("reset_password.html", token=token)
+
+@app.route("/toggle-favorite/<lot_id>", methods=["POST"])
+def toggle_favorite(lot_id):
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Only users can save favorite locations.", "error")
+        return redirect(url_for("home"))
+
+    next_url = request.form.get("next_url") or url_for("search")
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT id
+        FROM favorite_locations
+        WHERE user_id = %s
+          AND parking_lot_id = %s
+    """, (session.get("user_id"), lot_id))
+    favorite = cur.fetchone()
+
+    if favorite:
+        cur.execute("""
+            DELETE FROM favorite_locations
+            WHERE user_id = %s
+              AND parking_lot_id = %s
+        """, (session.get("user_id"), lot_id))
+        conn.commit()
+        flash("Removed from favorites.", "success")
+    else:
+        cur.execute("""
+            INSERT INTO favorite_locations (user_id, parking_lot_id)
+            VALUES (%s, %s)
+        """, (session.get("user_id"), lot_id))
+        conn.commit()
+        flash("Added to favorites.", "success")
+
+    cur.close()
+    conn.close()
+
+    return redirect(next_url)
+
+
+@app.route("/favorites")
+def favorites():
+    if "user_id" not in session:
+        flash("Please log in first.", "error")
+        return redirect(url_for("login"))
+
+    if session.get("user_role") != "user":
+        flash("Access denied.", "error")
+        return redirect(url_for("home"))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("""
+        SELECT
+            pl.id,
+            pl.name,
+            pl.address,
+            pl.price_per_hour,
+            pl.parking_type,
+            COUNT(ps.id) FILTER (WHERE ps.is_active = TRUE) AS available_slots
+        FROM favorite_locations fl
+        JOIN parking_lots pl ON fl.parking_lot_id = pl.id
+        LEFT JOIN parking_slots ps ON pl.id = ps.lot_id
+        WHERE fl.user_id = %s
+        GROUP BY pl.id, pl.name, pl.address, pl.price_per_hour, pl.parking_type
+        ORDER BY pl.name ASC
+    """, (session.get("user_id"),))
+
+    favorite_lots = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return render_template(
+        "favorites.html",
+        user_email=session.get("user_email"),
+        user_role=session.get("user_role"),
+        favorite_lots=favorite_lots
+    )
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5055)
