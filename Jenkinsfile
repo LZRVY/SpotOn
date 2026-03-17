@@ -7,57 +7,6 @@ pipeline {
         DEV_URL = "http://13.58.211.204"
     }
 
-<<<<<<< HEAD
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t smart-parking-app:dev .'
-            }
-        }
-
-        stage('Deploy to DEV') {
-            steps {
-                sh '''
-                    docker rm -f smart-parking-dev || true
-                    docker run -d --name smart-parking-dev -p 80:5000 smart-parking-app:dev
-                '''
-            }
-        }
-
-        stage('Trigger testRigor') {
-            steps {
-                withCredentials([string(credentialsId: 'testRigorToken', variable: 'testRigorToken')]) {
-                    sh '''
-                        set -e
-                        echo "Triggering testRigor..."
-
-                        curl -sS -X POST \
-                          -H "Content-Type: application/json" \
-                          -H "auth-token: $testRigorToken" \
-                          --data '{"forceCancelPreviousTesting":true}' \
-                          https://api.testrigor.com/api/v1/apps/DYnF8LHyz83AeE7vv/retest
-
-                        echo
-                    '''
-                }
-            }
-        }
-=======
-    stage('Build + Test in Docker') {
-      steps {
-        sh '''
-          docker version
-          docker build -t smart-parking-app:dev .
-        '''
-      }
->>>>>>> e8de157 (Session/Auth polish + Jenkins updates)
-    }
 
    post {
     success {
