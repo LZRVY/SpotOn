@@ -11,6 +11,32 @@ pipeline {
             }
         }
 
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t smart-parking-app .'
+            }
+        }
+        
+        
+        stage('Run Container') {
+            steps {
+                sh '''
+                docker stop app || true
+                docker rm app || true
+                docker run -d -p 8000:8000 --name app smart-parking-app
+                '''
+            }
+        }
+        
+        
+        stage('Push Image') {
+            steps {
+                sh '''
+                docker tag smart-parking-app yourdockerhub/smart-parking-app
+                docker push yourdockerhub/smart-parking-app
+                '''
+            }
+        }
         stage('Setup Python') {
             steps {
                 sh '''
