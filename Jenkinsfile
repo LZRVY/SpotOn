@@ -44,23 +44,28 @@ pipeline {
     post {
     success {
         withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_URL')]) {
-            sh '''
+            sh """
             curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"✅ SUCCESS: Jenkins Build #${BUILD_NUMBER} 🚀\\n${BUILD_URL}"}' \
+            --data '{"text":"✅ SUCCESS: Jenkins Build #${BUILD_NUMBER} 🚀\\n🔗 Build: ${BUILD_URL}\\n🌐 App: https://smart-parking-system-1jj9.onrender.com/"}' \
             $SLACK_URL
-            '''
+            """
         }
     }
 
     failure {
         withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_URL')]) {
-            sh '''
+            sh """
             curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"❌ FAILURE: Jenkins Build #${BUILD_NUMBER} 🔥\\n${BUILD_URL}"}' \
+            --data '{"text":"❌ FAILURE: Jenkins Build #${BUILD_NUMBER} 🔥\\n🔗 Build: ${BUILD_URL}\\n🌐 App: https://smart-parking-system-1jj9.onrender.com/"}' \
             $SLACK_URL
-            '''
+            """
         }
     }
+
+    always {
+        cleanWs()
+    }
+}
 
     always {
         cleanWs()
