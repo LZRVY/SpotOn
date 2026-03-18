@@ -41,8 +41,24 @@ pipeline {
     }
     }
   }
+    post {
+    success {
+        sh '''
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"✅ SUCCESS: Jenkins Build #${BUILD_NUMBER}"}' \
+        https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+        '''
+    }
 
-  post {
-    always { cleanWs() }
-  }
+    failure {
+        sh '''
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"❌ FAILURE: Jenkins Build #${BUILD_NUMBER}"}' \
+        https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+        '''
+    }
+
+    always {
+    cleanWs()
+    }
 }
