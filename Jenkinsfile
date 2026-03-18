@@ -33,7 +33,7 @@ pipeline {
                 docker rmi -f ${DOCKER_IMAGE} || true
                 docker pull --platform linux/amd64 ${DOCKER_IMAGE}
                 docker run -d -p 8000:8000 --name app \
-                -e DATABASE_URL=postgresql://admin:admin@172.31.41.214:5432/parking \
+                -e DATABASE_URL=postgresql://admin:admin@postgres-db:5432/parking
                 ${DOCKER_IMAGE}
                 '
                 """
