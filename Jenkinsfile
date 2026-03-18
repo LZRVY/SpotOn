@@ -8,11 +8,11 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout') { 
             steps {
                 git 'https://github.com/LZRVY/smart-parking-system.git'
-            }
-        }
+    }
+}
 
         stage('Build & Push Image') {
             steps {
