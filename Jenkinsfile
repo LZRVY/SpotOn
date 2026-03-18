@@ -28,6 +28,7 @@ pipeline {
         stage('Test') {
             steps {
                 echo "Running tests..."
+                // optional: add pytest later
             }
         }
 
@@ -39,8 +40,10 @@ pipeline {
                 docker rm -f $DEV_CONTAINER || true
 
                 docker run -d \
-                  -p $DEV_PORT:$APP_PORT \
                   --name $DEV_CONTAINER \
+                  --network smart-network \
+                  --restart always \
+                  -p $DEV_PORT:$APP_PORT \
                   $APP_NAME:dev
                 '''
             }
@@ -49,16 +52,22 @@ pipeline {
 
     post {
         success {
+            echo "========================================"
+            echo "Application is live at: $DEV_URL"
+            echo "========================================"
+
             withCredentials([string(credentialsId: 'SLACK_WEBHOOK', variable: 'SLACK_WEBHOOK')]) {
                 sh """
                 curl -X POST -H 'Content-type: application/json' \
-                --data '{\"text\":\"✅ Jenkins Build #${env.BUILD_NUMBER}\\nSmart Parking deployed successfully\\nURL: http://localhost\"}' \
+                --data '{\"text\":\"✅ Jenkins Build #${env.BUILD_NUMBER}\\nSmart Parking deployed successfully\\nURL: ${DEV_URL}\"}' \
                 "$SLACK_WEBHOOK"
                 """
             }
         }
 
         failure {
+            echo "Build failed."
+
             withCredentials([string(credentialsId: 'SLACK_WEBHOOK', variable: 'SLACK_WEBHOOK')]) {
                 sh '''
                 curl -X POST -H 'Content-type: application/json' \
@@ -66,12 +75,6 @@ pipeline {
                 "$SLACK_WEBHOOK"
                 '''
             }
-        }
-
-        always {
-            echo "========================================"
-            echo "Application is live at: http://localhost"
-            echo "========================================"
         }
     }
 }
