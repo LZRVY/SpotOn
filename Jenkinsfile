@@ -4,10 +4,13 @@ pipeline {
     environment {
         APP_NAME = "smart-parking-app"
         DEV_CONTAINER = "smart-parking-dev"
-        DEV_URL = "http://13.58.211.204"
+        DEV_PORT = "80"
+        APP_PORT = "5055"
+        DEV_URL = "http://localhost"
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 echo "Checking out code..."
@@ -17,7 +20,8 @@ pipeline {
 
         stage('Build') {
             steps {
-                echo "Building application..."
+                echo "Building Docker image..."
+                sh 'docker build -t $APP_NAME:dev .'
             }
         }
 
@@ -29,7 +33,16 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                echo "Deploying to DEV..."
+                echo "Deploying container..."
+
+                sh '''
+                docker rm -f $DEV_CONTAINER || true
+
+                docker run -d \
+                  -p $DEV_PORT:$APP_PORT \
+                  --name $DEV_CONTAINER \
+                  $APP_NAME:dev
+                '''
             }
         }
     }
@@ -39,7 +52,7 @@ pipeline {
             withCredentials([string(credentialsId: 'SLACK_WEBHOOK', variable: 'SLACK_WEBHOOK')]) {
                 sh """
                 curl -X POST -H 'Content-type: application/json' \
-                --data '{\"text\":\"✅ Jenkins Build #${env.BUILD_NUMBER}\\nSmart Parking deployed successfully\\nDEV URL: http://13.58.211.204\"}' \
+                --data '{\"text\":\"✅ Jenkins Build #${env.BUILD_NUMBER}\\nSmart Parking deployed successfully\\nURL: http://localhost\"}' \
                 "$SLACK_WEBHOOK"
                 """
             }
@@ -57,8 +70,10 @@ pipeline {
 
         always {
             echo "========================================"
-            echo "Application is live at: http://13.58.211.204"
+            echo "Application is live at: http://localhost"
             echo "========================================"
         }
+    }
+}
     }
 }
