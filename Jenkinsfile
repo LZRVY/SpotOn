@@ -27,6 +27,14 @@ pipeline {
         '''
       }
     }
+    stage('Run App') {
+    steps {
+        sh '''
+        . .venv/bin/activate
+        nohup python app.py > app.log 2>&1 &
+        '''
+    }
+}
   }
 
   post {
