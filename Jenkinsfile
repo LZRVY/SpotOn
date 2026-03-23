@@ -32,13 +32,8 @@ pipeline {
 
                 docker network create parking-net || true
 
-                docker stop app || true
-                docker rm app || true
-
-                docker stop postgres-db || true
-                docker rm postgres-db || true
-
-                docker run -d --name postgres-db \
+                # Start DB only if not exists (persistent)
+                docker start postgres-db || docker run -d --name postgres-db \
                 --network parking-net \
                 -e POSTGRES_USER=admin \
                 -e POSTGRES_PASSWORD=admin \
@@ -47,6 +42,10 @@ pipeline {
                 -p 5432:5432 postgres
 
                 sleep 10
+
+                # ✅ FIX (missing in your version)
+                docker stop app || true
+                docker rm app || true
 
                 docker pull --platform linux/amd64 ${DOCKER_IMAGE}
 
