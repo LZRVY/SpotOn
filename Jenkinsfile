@@ -43,6 +43,7 @@ pipeline {
                 -e POSTGRES_USER=admin \
                 -e POSTGRES_PASSWORD=admin \
                 -e POSTGRES_DB=parking \
+                -v postgres_data:/var/lib/postgresql/data \
                 -p 5432:5432 postgres
 
                 sleep 10
@@ -59,18 +60,16 @@ pipeline {
             }
         }
 
-        stage('Verify Deployment') {
-            steps {
-                sh """
-                sleep 15
-
-                curl -f http://3.139.64.245:8000 || exit 1
-                echo "✅ App is LIVE at:"
+                stage('Verify Deployment') {
+                steps {
+                sh '''
+                sleep 20
+                curl -v http://3.139.64.245:8000
                 echo "http://3.139.64.245:8000"
-                """
+                '''
+               }
             }
-        }
-    }
+         }
 
     post {
         success {
