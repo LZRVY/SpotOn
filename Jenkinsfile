@@ -72,8 +72,12 @@ pipeline {
 
     post {
         success {
-            echo "✅ App is LIVE at: ${APP_URL}"
-        }
+        sh """
+        curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"✅ Jenkins Build #'${BUILD_NUMBER}'\n🚗 Smart Parking deployed successfully\n🔗 http://3.139.64.245:8000"}' \
+        https://hooks.slack.com/services/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
+        """
+    }
         failure {
             echo "❌ App is NOT reachable"
         }
