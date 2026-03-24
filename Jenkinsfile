@@ -70,13 +70,30 @@ pipeline {
             }
          }
 
-        post {
-        success {
+       post {
+    success {
+        withCredentials([string(credentialsId: 'slack_tok', variable: 'SLACK_WEBHOOK')]) {
             sh """
-            curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"✅ Jenkins Build #${BUILD_NUMBER}\\n🚗 Smart Parking deployed successfully\\n🔗 http://3.139.64.245:8000"}' \
-            https://hooks.slack.com/services/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
+                curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"✅ Jenkins Build #${BUILD_NUMBER}\\n🚗 Smart Parking deployed successfully\\n🔗 http://3.139.64.245:8000"}' \
+                $SLACK_WEBHOOK
             """
         }
+    }
+
+    failure {
+        withCredentials([string(credentialsId: 'slack_tok', variable: 'SLACK_WEBHOOK')]) {
+            sh """
+                curl -X POST -H 'Content-type: application/json' \
+                --data '{"text":"❌ Jenkins Build #${BUILD_NUMBER}\\n🚨 Smart Parking deployment FAILED"}' \
+                $SLACK_WEBHOOK
+            """
+        }
+    }
+
+    always {
+        echo "========================================"
+        echo "Application is live at: http://3.139.64.245:8000"
+        echo "========================================"
     }
 }
