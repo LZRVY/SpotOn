@@ -34,15 +34,19 @@ def login_required(role=None):
 
 
 def get_db_connection():
-    conn = psycopg2.connect(
-        host="host.docker.internal", 
-        port=5433,
+    database_url = os.getenv("DATABASE_URL")
+
+    if database_url:
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        return psycopg2.connect(database_url)
+
+    return psycopg2.connect(
+        host="localhost",
         database="smart_parking",
         user="vyomraj",
         password="NewStrongPassword123"
     )
-    return conn
-
 
 
 @app.route("/")

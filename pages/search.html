@@ -112,12 +112,7 @@
               id="start_date"
               name="start_date"
               class="reserve-input"
-<<<<<<< HEAD
-              min="{{ now_local }}"
-              value="{{ start_time }}"
-=======
               value="{{ start_date }}"
->>>>>>> d05e6d3 (Sprint 2: roles, deactivation, vehicle type, availability, UI polish)
             >
           </div>
 
@@ -140,12 +135,7 @@
               id="end_date"
               name="end_date"
               class="reserve-input"
-<<<<<<< HEAD
-              min="{{ now_local }}"
-              value="{{ end_time }}"
-=======
               value="{{ end_date }}"
->>>>>>> d05e6d3 (Sprint 2: roles, deactivation, vehicle type, availability, UI polish)
             >
           </div>
 
@@ -236,7 +226,9 @@
             <h3>{{ lot.name }}</h3>
             <span class="lot-badge">{{ lot.type }}</span>
           </div>
+
           <p class="lot-location">{{ lot.location }}</p>
+
           <div class="lot-stats">
             <div class="lot-stat">
               <span class="lot-stat-label">Price</span>
@@ -249,10 +241,13 @@
           </div>
 
           <div class="lot-actions">
-            <a href="{{ url_for('lot_details', lot_id=lot.id, start_time=combined_start_time, end_time=combined_end_time) }}"
-               class="btn btn-secondary lot-view-btn">
+            <a
+              href="{{ url_for('lot_details', lot_id=lot.id, start_time=combined_start_time, end_time=combined_end_time) }}"
+              class="btn btn-secondary lot-view-btn"
+            >
               View Details
             </a>
+
             {% if user_role == "driver" %}
             <form method="POST" action="{{ url_for('toggle_favorite', lot_id=lot.id) }}">
               <input type="hidden" name="next_url" value="{{ request.full_path }}">
@@ -277,69 +272,9 @@
         </p>
       </div>
       {% endif %}
+    </div>
 
     <script>
-      let selectedDay = "today";
-      let selectedDuration = 60;
-
-      function formatLocalDateTime(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const day = String(date.getDate()).padStart(2, "0");
-        const hours = String(date.getHours()).padStart(2, "0");
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-        return `${year}-${month}-${day}T${hours}:${minutes}`;
-      }
-
-      function roundUpToNextMinute(date) {
-        const d = new Date(date);
-        d.setSeconds(0, 0);
-        d.setMinutes(d.getMinutes() + 1);
-        return d;
-      }
-
-      function applyQuickRange() {
-        const startInput = document.getElementById("start_time");
-        const endInput = document.getElementById("end_time");
-
-        let start;
-
-        if (selectedDay === "today") {
-          start = roundUpToNextMinute(new Date());
-        } else {
-          start = new Date();
-          start.setDate(start.getDate() + 1);
-          start.setHours(9, 0, 0, 0);
-        }
-
-        const end = new Date(start);
-        end.setMinutes(end.getMinutes() + selectedDuration);
-
-        startInput.value = formatLocalDateTime(start);
-        endInput.value = formatLocalDateTime(end);
-      }
-
-      function setQuickDay(day, btn) {
-        selectedDay = day;
-
-        document.querySelectorAll("[data-day]").forEach((el) => {
-          el.classList.remove("active");
-        });
-        btn.classList.add("active");
-
-        applyQuickRange();
-      }
-
-      function setQuickDuration(minutes, btn) {
-        selectedDuration = minutes;
-
-        document.querySelectorAll("[data-duration]").forEach((el) => {
-          el.classList.remove("active");
-        });
-        btn.classList.add("active");
-
-        applyQuickRange();
-      }
       function pad(n) {
         return String(n).padStart(2, "0");
       }
@@ -348,6 +283,7 @@
         const d = new Date(date);
         d.setSeconds(0, 0);
         const mins = d.getMinutes();
+
         if (mins === 0 || mins === 30) {
           d.setMinutes(mins + 30);
         } else if (mins < 30) {
@@ -356,6 +292,7 @@
           d.setHours(d.getHours() + 1);
           d.setMinutes(0);
         }
+
         return d;
       }
 
