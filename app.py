@@ -526,6 +526,12 @@ def search():
 def lot_details(lot_id):
     start_time_str = request.args.get("start_time", "").strip()
     end_time_str = request.args.get("end_time", "").strip()
+    user_timezone = request.args.get("user_timezone", "UTC").strip()
+
+    try:
+        user_tz = ZoneInfo(user_timezone)
+    except Exception:
+        user_tz = ZoneInfo("UTC")
 
     selected_start = None
     selected_end = None
@@ -537,7 +543,6 @@ def lot_details(lot_id):
 
     if start_time_str and end_time_str:
         try:
-            # Keep local values for form repopulation
             local_start = datetime.fromisoformat(start_time_str)
             local_end = datetime.fromisoformat(end_time_str)
 
@@ -546,11 +551,8 @@ def lot_details(lot_id):
             end_date = local_end.strftime("%Y-%m-%d")
             end_time_only = local_end.strftime("%H:%M")
 
-            # Convert the selected local time to UTC using the server's current local timezone context
-            # This matches how the browser-local values are being interpreted for the app.
-            local_tz = datetime.now().astimezone().tzinfo
-            selected_start = local_start.replace(tzinfo=local_tz).astimezone(timezone.utc)
-            selected_end = local_end.replace(tzinfo=local_tz).astimezone(timezone.utc)
+            selected_start = local_start.replace(tzinfo=user_tz).astimezone(timezone.utc)
+            selected_end = local_end.replace(tzinfo=user_tz).astimezone(timezone.utc)
 
         except ValueError:
             flash("Invalid search time range.", "error")
@@ -677,7 +679,6 @@ def lot_details(lot_id):
 def reserve_slot(slot_id):
     lot_id = request.form.get("lot_id", "").strip()
     vehicle_id = request.form.get("vehicle_id", "").strip()
-
     user_timezone = request.form.get("user_timezone", "UTC").strip()
 
     try:
@@ -699,7 +700,8 @@ def reserve_slot(slot_id):
                 "lot_details",
                 lot_id=lot_id or "",
                 start_time=start_time_str,
-                end_time=end_time_str
+                end_time=end_time_str,
+                user_timezone=user_timezone
             )
         )
 
