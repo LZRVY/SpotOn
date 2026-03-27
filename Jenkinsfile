@@ -23,12 +23,15 @@ pipeline {
             }
         }
 
-        stage('Run App') {
+stage('Run App') {
     steps {
         sh '''
         pkill -f app.py || true
+        sleep 2
+
         nohup venv/bin/python app.py > app.log 2>&1 &
-        sleep 10
+
+        sleep 5
         lsof -i :5055 || true
         '''
     }
@@ -37,7 +40,7 @@ pipeline {
 
     post {
         success {
-            echo "App running at http://localhost:5055"
+            echo "App running at http://127.0.0.1:5055"
         }
         failure {
             echo "Build failed"
