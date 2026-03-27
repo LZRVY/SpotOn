@@ -55,7 +55,6 @@ def home():
 
 
 @app.route("/signup", methods=["GET", "POST"])
-@login_required()
 def signup():
     if request.method == "POST":
         full_name = request.form.get("full_name", "").strip()
@@ -670,7 +669,7 @@ def lot_details(lot_id):
 @app.route("/reserve/<slot_id>", methods=["POST"])
 @login_required(role="driver")
 def reserve_slot(slot_id):
-    submitted_lot_id = request.form.get("lot_id")
+    lot_id = request.form.get("lot_id", "").strip()
     vehicle_id = request.form.get("vehicle_id", "").strip()
 
     start_date = request.form.get("start_date", "").strip()
@@ -681,37 +680,37 @@ def reserve_slot(slot_id):
     start_time_str = f"{start_date}T{start_time_only}" if start_date and start_time_only else ""
     end_time_str = f"{end_date}T{end_time_only}" if end_date and end_time_only else ""
 
-    def back_to_lot(lot_id_value):
+    def back_to_lot():
         return redirect(
             url_for(
                 "lot_details",
-                lot_id=lot_id_value or submitted_lot_id or "",
+                lot_id=lot_id or "",
                 start_time=start_time_str,
                 end_time=end_time_str
             )
         )
 
-    if not vehicle_id or not start_time_str or not end_time_str:
+    if not lot_id or not vehicle_id or not start_time_str or not end_time_str:
         flash("Please select a vehicle and provide reservation start and end times.", "error")
-        return back_to_lot(submitted_lot_id)
+        return back_to_lot()
 
     try:
         start_time = datetime.fromisoformat(start_time_str)
         end_time = datetime.fromisoformat(end_time_str)
     except ValueError:
         flash("Invalid date/time format.", "error")
-        return back_to_lot(submitted_lot_id)
+        return back_to_lot()
 
     if end_time <= start_time:
         flash("End time must be after start time.", "error")
-        return back_to_lot(submitted_lot_id)
+        return back_to_lot()
 
     current_minutes = datetime.now().replace(second=0, microsecond=0)
     minimum_start_time = current_minutes + timedelta(minutes=1)
 
     if start_time < minimum_start_time:
         flash("Start time cannot be earlier than the current time.", "error")
-        return back_to_lot(submitted_lot_id)
+        return back_to_lot()
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -738,10 +737,11 @@ def reserve_slot(slot_id):
             return redirect(url_for("search"))
 
         actual_lot_id = str(slot_record["lot_id"])
+        lot_id = actual_lot_id
 
         if not slot_record["is_active"]:
             flash("This slot is currently inactive.", "error")
-            return back_to_lot(actual_lot_id)
+            return back_to_lot()
 
         cur.execute(
             """
@@ -756,7 +756,7 @@ def reserve_slot(slot_id):
 
         if not selected_vehicle:
             flash("Selected vehicle not found.", "error")
-            return back_to_lot(actual_lot_id)
+            return back_to_lot()
 
         if selected_vehicle["vehicle_type"] != slot_record["supported_vehicle_type"]:
             flash(
@@ -764,7 +764,7 @@ def reserve_slot(slot_id):
                 f"but selected vehicle is {selected_vehicle['vehicle_type']}.",
                 "error"
             )
-            return back_to_lot(actual_lot_id)
+            return back_to_lot()
 
         duration_hours = (end_time - start_time).total_seconds() / 3600
         total_cost = round(float(slot_record["price_per_hour"] or 0) * duration_hours, 2)
@@ -783,12 +783,12 @@ def reserve_slot(slot_id):
             f"Estimated cost: ${total_cost:.2f}",
             "success"
         )
-        return back_to_lot(actual_lot_id)
+        return back_to_lot()
 
     except psycopg2.Error:
         conn.rollback()
         flash("That slot is already reserved for the selected time range.", "error")
-        return back_to_lot(submitted_lot_id)
+        return back_to_lot()
 
     finally:
         cur.close()
