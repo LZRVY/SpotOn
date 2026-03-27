@@ -24,13 +24,13 @@ pipeline {
         }
 
         stage('Run App') {
-            steps {
-                sh '''
-                pkill -f app.py || true
-                nohup venv/bin/python app.py > app.log 2>&1 &
-                '''
-            }
-        }
+    steps {
+        sh '''
+        pkill -f app.py || true
+        nohup venv/bin/python app.py > app.log 2>&1 &
+        '''
+    }
+}
     }
 
     post {
