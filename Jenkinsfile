@@ -28,6 +28,7 @@ pipeline {
         sh '''
         pkill -f app.py || true
         nohup venv/bin/python app.py > app.log 2>&1 &
+        sleep 5
         '''
     }
 }
