@@ -102,6 +102,7 @@
                 {% if vehicles %}
                 <form method="POST" action="{{ url_for('reserve_slot', slot_id=slot.id) }}" class="slot-reserve-form">
                   <input type="hidden" name="lot_id" value="{{ lot.id }}">
+                  <input type="hidden" name="user_timezone" class="user-timezone-input">
 
                   <label for="vehicle_id_{{ slot.id }}" class="reserve-label">Select Vehicle</label>
                   <select id="vehicle_id_{{ slot.id }}" name="vehicle_id" class="reserve-input" required>
@@ -175,5 +176,137 @@
         {% endfor %}
       </div>
     </div>
+
+    <script>
+      function pad(n) {
+        return String(n).padStart(2, "0");
+      }
+
+      function formatDateLocal(date) {
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+      }
+
+      function roundUpToNextHalfHour(date) {
+        const d = new Date(date);
+        d.setSeconds(0, 0);
+        const mins = d.getMinutes();
+
+        if (mins === 0) {
+          d.setMinutes(30);
+        } else if (mins <= 30) {
+          d.setMinutes(30);
+        } else {
+          d.setHours(d.getHours() + 1);
+          d.setMinutes(0);
+        }
+
+        return d;
+      }
+
+      function buildHalfHourOptions(selectEl, selectedValue, minDateTime = null, selectedDate = null) {
+        selectEl.innerHTML = "";
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Select time";
+        selectEl.appendChild(placeholder);
+
+        for (let hour = 0; hour < 24; hour++) {
+          for (let minute of [0, 30]) {
+            const value = `${pad(hour)}:${pad(minute)}`;
+            const option = document.createElement("option");
+            option.value = value;
+
+            const displayHour = hour % 12 || 12;
+            const ampm = hour < 12 ? "AM" : "PM";
+            option.textContent = `${displayHour}:${pad(minute)} ${ampm}`;
+
+            if (minDateTime && selectedDate) {
+              const optionDateTime = new Date(`${selectedDate}T${value}:00`);
+              if (optionDateTime < minDateTime) {
+                option.disabled = true;
+              }
+            }
+
+            if (selectedValue === value) {
+              option.selected = true;
+            }
+
+            selectEl.appendChild(option);
+          }
+        }
+      }
+
+      function getDateTimeFromFields(dateInput, timeSelect) {
+        if (!dateInput.value || !timeSelect.value) return null;
+        return new Date(`${dateInput.value}T${timeSelect.value}:00`);
+      }
+
+      function syncReservationForm(form) {
+        const startDate = form.querySelector('input[name="start_date"]');
+        const startTime = form.querySelector('select[name="start_time_only"]');
+        const endDate = form.querySelector('input[name="end_date"]');
+        const endTime = form.querySelector('select[name="end_time_only"]');
+        const tzInput = form.querySelector('.user-timezone-input');
+
+        if (tzInput) {
+          tzInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        }
+
+        const now = new Date();
+        const minStart = roundUpToNextHalfHour(now);
+
+        if (!startDate.value) {
+          startDate.value = formatDateLocal(minStart);
+        }
+
+        const existingStartValue = startTime.value;
+        const startMinForDate = startDate.value === formatDateLocal(minStart) ? minStart : null;
+        buildHalfHourOptions(startTime, existingStartValue, startMinForDate, startDate.value);
+
+        const startDateTime = getDateTimeFromFields(startDate, startTime);
+
+        let minEnd = null;
+        if (startDateTime) {
+          minEnd = new Date(startDateTime);
+          minEnd.setMinutes(minEnd.getMinutes() + 30);
+        }
+
+        if (!endDate.value) {
+          endDate.value = minEnd ? formatDateLocal(minEnd) : startDate.value;
+        }
+
+        if (minEnd) {
+          const minEndDateOnly = formatDateLocal(minEnd);
+          if (endDate.value < minEndDateOnly) {
+            endDate.value = minEndDateOnly;
+          }
+        }
+
+        const existingEndValue = endTime.value;
+        const endMinForDate = minEnd && endDate.value === formatDateLocal(minEnd) ? minEnd : null;
+        buildHalfHourOptions(endTime, existingEndValue, endMinForDate, endDate.value);
+
+        const finalEndDateTime = getDateTimeFromFields(endDate, endTime);
+        if (startDateTime && finalEndDateTime && finalEndDateTime <= startDateTime) {
+          endTime.value = "";
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        document.querySelectorAll(".slot-reserve-form").forEach((form) => {
+          const startDate = form.querySelector('input[name="start_date"]');
+          const startTime = form.querySelector('select[name="start_time_only"]');
+          const endDate = form.querySelector('input[name="end_date"]');
+          const endTime = form.querySelector('select[name="end_time_only"]');
+
+          syncReservationForm(form);
+
+          [startDate, startTime, endDate].forEach((el) => {
+            el.addEventListener("change", () => syncReservationForm(form));
+          });
+        });
+      });
+    </script>
   </body>
 </html>

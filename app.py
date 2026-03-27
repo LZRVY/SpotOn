@@ -1,3 +1,5 @@
+from zoneinfo import ZoneInfo
+from datetime import timezone
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
@@ -672,6 +674,13 @@ def reserve_slot(slot_id):
     lot_id = request.form.get("lot_id", "").strip()
     vehicle_id = request.form.get("vehicle_id", "").strip()
 
+    user_timezone = request.form.get("user_timezone", "UTC").strip()
+
+    try:
+        user_tz = ZoneInfo(user_timezone)
+    except Exception:
+        user_tz = ZoneInfo("UTC")
+
     start_date = request.form.get("start_date", "").strip()
     start_time_only = request.form.get("start_time_only", "").strip()
     end_date = request.form.get("end_date", "").strip()
@@ -695,18 +704,21 @@ def reserve_slot(slot_id):
         return back_to_lot()
 
     try:
-        start_time = datetime.fromisoformat(start_time_str)
-        end_time = datetime.fromisoformat(end_time_str)
+        start_local = datetime.fromisoformat(start_time_str).replace(tzinfo=user_tz)
+        end_local = datetime.fromisoformat(end_time_str).replace(tzinfo=user_tz)
     except ValueError:
         flash("Invalid date/time format.", "error")
         return back_to_lot()
 
+    start_time = start_local.astimezone(timezone.utc)
+    end_time = end_local.astimezone(timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
+    minimum_start_time = now_utc + timedelta(minutes=1)
+
     if end_time <= start_time:
         flash("End time must be after start time.", "error")
         return back_to_lot()
-
-    current_minutes = datetime.now().replace(second=0, microsecond=0)
-    minimum_start_time = current_minutes + timedelta(minutes=1)
 
     if start_time < minimum_start_time:
         flash("Start time cannot be earlier than the current time.", "error")
@@ -736,8 +748,7 @@ def reserve_slot(slot_id):
             flash("Slot not found.", "error")
             return redirect(url_for("search"))
 
-        actual_lot_id = str(slot_record["lot_id"])
-        lot_id = actual_lot_id
+        lot_id = str(slot_record["lot_id"])
 
         if not slot_record["is_active"]:
             flash("This slot is currently inactive.", "error")
@@ -758,7 +769,10 @@ def reserve_slot(slot_id):
             flash("Selected vehicle not found.", "error")
             return back_to_lot()
 
-        if selected_vehicle["vehicle_type"] != slot_record["supported_vehicle_type"]:
+        selected_vehicle_type = (selected_vehicle["vehicle_type"] or "").strip().lower()
+        supported_vehicle_type = (slot_record["supported_vehicle_type"] or "").strip().lower()
+
+        if selected_vehicle_type != supported_vehicle_type:
             flash(
                 f"Vehicle type mismatch. Slot supports {slot_record['supported_vehicle_type']}, "
                 f"but selected vehicle is {selected_vehicle['vehicle_type']}.",
