@@ -35,6 +35,13 @@
           <a href="{{ url_for('search') }}" class="topbar-btn topbar-btn-secondary">
             Back to Search
           </a>
+          <a href="https://www.google.com/maps/search/?api=1&query={{ lot.address|urlencode }}"
+             target="_blank"
+             rel="noopener noreferrer"
+             class="topbar-btn topbar-btn-secondary"
+          >
+            Get Directions
+          </a>
           <a href="{{ url_for('logout') }}" class="topbar-btn topbar-btn-primary">
             Logout
           </a>

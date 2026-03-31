@@ -28,16 +28,44 @@
       {% endwith %}
 
       <div class="search-topbar">
-        <p style="margin: 0; color: #777;">
-          Logged in as <strong>{{ user_email }}</strong> ({{ user_role }})
-        </p>
-        <div class="search-topbar-actions">
-          <a href="{{ url_for('dashboard') }}" class="topbar-btn topbar-btn-secondary">
-            Back to Dashboard
-          </a>
-          <a href="{{ url_for('logout') }}" class="topbar-btn topbar-btn-primary">Logout</a>
-        </div>
-      </div>
+  <p style="margin: 0; color: #777;">
+    {% if user_email and user_role %}
+      Logged in as <strong>{{ user_email }}</strong> ({{ user_role }})
+    {% else %}
+      Browsing as guest
+    {% endif %}
+  </p>
+
+  <div class="search-topbar-actions">
+    {% if user_role == "driver" %}
+      <a href="{{ url_for('dashboard') }}" class="topbar-btn topbar-btn-secondary">
+        Back to Dashboard
+      </a>
+    {% elif user_role == "operator" %}
+      <a href="{{ url_for('operator_dashboard') }}" class="topbar-btn topbar-btn-secondary">
+        Back to Dashboard
+      </a>
+    {% elif user_role == "admin" %}
+      <a href="{{ url_for('admin_dashboard') }}" class="topbar-btn topbar-btn-secondary">
+        Back to Dashboard
+      </a>
+    {% else %}
+      <a href="{{ url_for('home') }}" class="topbar-btn topbar-btn-secondary">
+        Back to Home
+      </a>
+    {% endif %}
+
+    {% if user_email %}
+      <a href="{{ url_for('logout') }}" class="topbar-btn topbar-btn-primary">
+        Logout
+      </a>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="topbar-btn topbar-btn-primary">
+        Sign in
+      </a>
+    {% endif %}
+  </div>
+</div>
 
       <div class="quick-time-panel">
         <div class="quick-time-group">
