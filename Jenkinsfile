@@ -35,7 +35,7 @@ stage('Run App') {
         lsof -i :5055 || true
         '''
     }
-}
+ }
     }
 
     post {
