@@ -35,11 +35,11 @@ def login_required(role=None):
 
 def get_db_connection():
     conn = psycopg2.connect(
-        host="host.docker.internal", 
-        port=5433,
+        host="localhost", 
+        port=5432,
         database="smart_parking",
-        user="vyomraj",
-        password="NewStrongPassword123"
+        user="daanishshaikh",
+        password="Daanish@1642"
     )
     return conn
 
