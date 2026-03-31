@@ -188,12 +188,14 @@ def dashboard():
             r.status,
             pl.name AS lot_name,
             pl.address AS lot_address,
+            pl.price_per_hour AS price_per_hour,
             ps.label AS slot_label
         FROM reservations r
         JOIN parking_slots ps ON r.slot_id = ps.id
         JOIN parking_lots pl ON ps.lot_id = pl.id
         WHERE r.user_id = %s
           AND r.status = 'CONFIRMED'
+          AND r.end_time > now()
         ORDER BY r.start_time DESC
     """, (session.get("user_id"),))
     active_reservations = cur.fetchall()
@@ -206,12 +208,16 @@ def dashboard():
             r.status,
             pl.name AS lot_name,
             pl.address AS lot_address,
+            pl.price_per_hour AS price_per_hour,
             ps.label AS slot_label
         FROM reservations r
         JOIN parking_slots ps ON r.slot_id = ps.id
         JOIN parking_lots pl ON ps.lot_id = pl.id
         WHERE r.user_id = %s
-          AND r.status <> 'CONFIRMED'
+          AND (
+              r.status <> 'CONFIRMED'
+              OR r.end_time <= now()
+          )
         ORDER BY r.start_time DESC
     """, (session.get("user_id"),))
     reservation_history = cur.fetchall()
@@ -224,22 +230,254 @@ def dashboard():
             return "—"
         return dt_value.strftime("%b %d, %Y • %I:%M %p").replace(" 0", " ")
 
+    def format_status(reservation):
+        if reservation["status"] == "CANCELLED":
+            return "Cancelled"
+        if reservation["status"] == "CONFIRMED" and reservation["end_time"] and reservation["end_time"] <= datetime.now(timezone.utc):
+            return "Completed"
+        if reservation["status"] == "CONFIRMED":
+            return "Confirmed"
+        return reservation["status"].capitalize() if reservation["status"] else "—"
+
+    def add_edit_fields(reservation):
+        if reservation["start_time"]:
+            reservation["edit_start_date"] = reservation["start_time"].strftime("%Y-%m-%d")
+            reservation["edit_start_time_only"] = reservation["start_time"].strftime("%H:%M")
+        else:
+            reservation["edit_start_date"] = ""
+            reservation["edit_start_time_only"] = ""
+
+        if reservation["end_time"]:
+            reservation["edit_end_date"] = reservation["end_time"].strftime("%Y-%m-%d")
+            reservation["edit_end_time_only"] = reservation["end_time"].strftime("%H:%M")
+        else:
+            reservation["edit_end_date"] = ""
+            reservation["edit_end_time_only"] = ""
+
+    def add_cost_fields(reservation):
+        if reservation["start_time"] and reservation["end_time"] and reservation.get("price_per_hour") is not None:
+            duration_hours = (reservation["end_time"] - reservation["start_time"]).total_seconds() / 3600
+            reservation["estimated_cost"] = round(float(reservation["price_per_hour"] or 0) * duration_hours, 2)
+        else:
+            reservation["estimated_cost"] = None
+
     for reservation in active_reservations:
         reservation["formatted_start"] = format_dt(reservation["start_time"])
         reservation["formatted_end"] = format_dt(reservation["end_time"])
+        reservation["formatted_status"] = format_status(reservation)
+        add_edit_fields(reservation)
+        add_cost_fields(reservation)
 
     for reservation in reservation_history:
         reservation["formatted_start"] = format_dt(reservation["start_time"])
         reservation["formatted_end"] = format_dt(reservation["end_time"])
+        reservation["formatted_status"] = format_status(reservation)
+        add_edit_fields(reservation)
+        add_cost_fields(reservation)
+
+    time_options = []
+    base_time = datetime.strptime("00:00", "%H:%M")
+    for i in range(48):
+        t = (base_time + timedelta(minutes=30 * i)).strftime("%H:%M")
+        label = datetime.strptime(t, "%H:%M").strftime("%I:%M %p").lstrip("0")
+        time_options.append({"value": t, "label": label})
 
     return render_template(
         "dashboard.html",
         user_email=session.get("user_email"),
         user_role=session.get("user_role"),
         active_reservations=active_reservations,
-        reservation_history=reservation_history
+        reservation_history=reservation_history,
+        time_options=time_options
     )
 
+
+# ---- EXTEND RESERVATION ROUTE ----
+@app.route("/extend-reservation/<reservation_id>", methods=["POST"])
+@login_required(role="driver")
+def extend_reservation(reservation_id):
+    extension_minutes_raw = request.form.get("extension_minutes", "").strip()
+
+    try:
+        extension_minutes = int(extension_minutes_raw)
+    except ValueError:
+        flash("Invalid extension selection.", "error")
+        return redirect(url_for("dashboard"))
+
+    if extension_minutes not in {30, 60}:
+        flash("Only 30-minute or 1-hour extensions are allowed.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT r.id, r.user_id, r.slot_id, r.start_time, r.end_time, r.status, pl.price_per_hour
+            FROM reservations r
+            JOIN parking_slots ps ON r.slot_id = ps.id
+            JOIN parking_lots pl ON ps.lot_id = pl.id
+            WHERE r.id = %s
+        """, (reservation_id,))
+        reservation = cur.fetchone()
+
+
+        if not reservation:
+            flash("Reservation not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        if str(reservation["user_id"]) != session.get("user_id"):
+            flash("You can only extend your own reservations.", "error")
+            return redirect(url_for("dashboard"))
+
+        if reservation["status"] != "CONFIRMED":
+            flash("Only confirmed reservations can be extended.", "error")
+            return redirect(url_for("dashboard"))
+
+        if reservation["end_time"] <= datetime.now(timezone.utc):
+            flash("Completed reservations cannot be extended.", "error")
+            return redirect(url_for("dashboard"))
+
+        new_end_time = reservation["end_time"] + timedelta(minutes=extension_minutes)
+        original_duration_hours = (reservation["end_time"] - reservation["start_time"]).total_seconds() / 3600
+        new_duration_hours = (new_end_time - reservation["start_time"]).total_seconds() / 3600
+        original_total_cost = round(float(reservation["price_per_hour"] or 0) * original_duration_hours, 2)
+        new_total_cost = round(float(reservation["price_per_hour"] or 0) * new_duration_hours, 2)
+        added_cost = round(new_total_cost - original_total_cost, 2)
+
+        cur.execute("""
+            SELECT 1
+            FROM reservations r
+            WHERE r.slot_id = %s
+              AND r.id <> %s
+              AND r.status = 'CONFIRMED'
+              AND tstzrange(r.start_time, r.end_time, '[)') &&
+                  tstzrange(%s, %s, '[)')
+            LIMIT 1
+        """, (
+            reservation["slot_id"],
+            reservation["id"],
+            reservation["end_time"],
+            new_end_time,
+        ))
+        overlapping_reservation = cur.fetchone()
+
+        if overlapping_reservation:
+            flash("This reservation cannot be extended because the slot is not available for the additional time.", "error")
+            return redirect(url_for("dashboard"))
+
+        cur.execute("""
+            UPDATE reservations
+            SET end_time = %s
+            WHERE id = %s
+        """, (new_end_time, reservation["id"]))
+        conn.commit()
+
+        hours_added = extension_minutes / 60
+        flash(
+            f"Reservation extended successfully by {hours_added:g} hour(s). "
+            f"Added cost: ${added_cost:.2f}. New estimated total: ${new_total_cost:.2f}",
+            "success"
+        )
+        return redirect(url_for("dashboard"))
+
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route("/modify-reservation/<reservation_id>", methods=["POST"])
+@login_required(role="driver")
+def modify_reservation(reservation_id):
+    start_date = request.form.get("start_date", "").strip()
+    start_time_only = request.form.get("start_time_only", "").strip()
+    end_date = request.form.get("end_date", "").strip()
+    end_time_only = request.form.get("end_time_only", "").strip()
+
+    start_time_str = f"{start_date}T{start_time_only}" if start_date and start_time_only else ""
+    end_time_str = f"{end_date}T{end_time_only}" if end_date and end_time_only else ""
+
+    if not start_time_str or not end_time_str:
+        flash("Please provide updated reservation start and end times.", "error")
+        return redirect(url_for("dashboard"))
+
+    try:
+        start_time = datetime.fromisoformat(start_time_str)
+        end_time = datetime.fromisoformat(end_time_str)
+    except ValueError:
+        flash("Invalid date/time format.", "error")
+        return redirect(url_for("dashboard"))
+
+    if end_time <= start_time:
+        flash("End time must be after start time.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT r.id, r.user_id, r.slot_id, r.start_time, r.end_time, r.status, pl.price_per_hour
+            FROM reservations r
+            JOIN parking_slots ps ON r.slot_id = ps.id
+            JOIN parking_lots pl ON ps.lot_id = pl.id
+            WHERE r.id = %s
+        """, (reservation_id,))
+        reservation = cur.fetchone()
+
+        if not reservation:
+            flash("Reservation not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        if str(reservation["user_id"]) != session.get("user_id"):
+            flash("You can only modify your own reservations.", "error")
+            return redirect(url_for("dashboard"))
+
+        if reservation["status"] != "CONFIRMED":
+            flash("Only confirmed reservations can be modified.", "error")
+            return redirect(url_for("dashboard"))
+
+        if reservation["end_time"] <= datetime.now(timezone.utc):
+            flash("Completed reservations cannot be modified.", "error")
+            return redirect(url_for("dashboard"))
+
+        cur.execute("""
+            SELECT 1
+            FROM reservations r
+            WHERE r.slot_id = %s
+              AND r.id <> %s
+              AND r.status = 'CONFIRMED'
+              AND tstzrange(r.start_time, r.end_time, '[)') &&
+                  tstzrange(%s, %s, '[)')
+            LIMIT 1
+        """, (
+            reservation["slot_id"],
+            reservation["id"],
+            start_time,
+            end_time,
+        ))
+        overlapping_reservation = cur.fetchone()
+
+        if overlapping_reservation:
+            flash("This reservation cannot be modified because the slot is not available for the selected time range.", "error")
+            return redirect(url_for("dashboard"))
+
+        new_duration_hours = (end_time - start_time).total_seconds() / 3600
+        new_total_cost = round(float(reservation["price_per_hour"] or 0) * new_duration_hours, 2)
+
+        cur.execute("""
+            UPDATE reservations
+            SET start_time = %s,
+                end_time = %s
+            WHERE id = %s
+        """, (start_time, end_time, reservation["id"]))
+        conn.commit()
+
+        flash(f"Reservation updated successfully. New estimated total: ${new_total_cost:.2f}", "success")
+        return redirect(url_for("dashboard"))
+
+    finally:
+        cur.close()
+        conn.close()
 
 @app.route("/operator-dashboard")
 @login_required(role="operator")

@@ -70,18 +70,86 @@
                   </div>
                   <div class="reservation-meta-box">
                     <span class="reservation-label">Status</span>
-                    <span class="reservation-value">{{ reservation.status|capitalize }}</span>
+                    <span class="reservation-value">{{ reservation.formatted_status }}</span>
                   </div>
                 </div>
 
                 <div class="reservation-time reservation-time-soft">
                   <p><strong>Starts</strong><br>{{ reservation.formatted_start }}</p>
                   <p><strong>Ends</strong><br>{{ reservation.formatted_end }}</p>
+                  <p><strong>Estimated Cost</strong><br>
+                    {% if reservation.estimated_cost is not none %}
+                      ${{ '%.2f'|format(reservation.estimated_cost) }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </p>
                 </div>
 
-                <form method="POST" action="{{ url_for('cancel_reservation', reservation_id=reservation.id) }}">
-                  <button type="submit" class="btn btn-secondary">Cancel Reservation</button>
-                </form>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; align-items: end;">
+                  <button
+                    type="button"
+                    class="btn btn-secondary reservation-action-btn"
+                    onclick="toggleModifyForm('{{ reservation.id }}')"
+                  >
+                    Modify Reservation
+                  </button>
+
+                  <form
+                    method="POST"
+                    action="{{ url_for('modify_reservation', reservation_id=reservation.id) }}"
+                    id="modify-form-{{ reservation.id }}"
+                    style="margin: 0; display: none; grid-template-columns: repeat(4, minmax(120px, 1fr)) auto; gap: 10px; width: 100%; align-items: end;"
+                  >
+                    <div>
+                      <label class="reservation-label" for="modify_start_date_{{ reservation.id }}">Start Date</label>
+                      <input type="date" id="modify_start_date_{{ reservation.id }}" name="start_date" class="reserve-input" value="{{ reservation.edit_start_date }}" required>
+                    </div>
+
+                    <div>
+                      <label class="reservation-label" for="modify_start_time_only_{{ reservation.id }}">Start Time</label>
+                      <select id="modify_start_time_only_{{ reservation.id }}" name="start_time_only" class="reserve-input" required>
+                        <option value="">Select time</option>
+                        {% for opt in time_options %}
+                          <option value="{{ opt.value }}" {% if reservation.edit_start_time_only == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label class="reservation-label" for="modify_end_date_{{ reservation.id }}">End Date</label>
+                      <input type="date" id="modify_end_date_{{ reservation.id }}" name="end_date" class="reserve-input" value="{{ reservation.edit_end_date }}" required>
+                    </div>
+
+                    <div>
+                      <label class="reservation-label" for="modify_end_time_only_{{ reservation.id }}">End Time</label>
+                      <select id="modify_end_time_only_{{ reservation.id }}" name="end_time_only" class="reserve-input" required>
+                        <option value="">Select time</option>
+                        {% for opt in time_options %}
+                          <option value="{{ opt.value }}" {% if reservation.edit_end_time_only == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+                        {% endfor %}
+                      </select>
+                    </div>
+
+                    <div>
+                      <button type="submit" class="btn btn-secondary reservation-action-btn">Save Changes</button>
+                    </div>
+                  </form>
+
+                  <form method="POST" action="{{ url_for('extend_reservation', reservation_id=reservation.id) }}" style="margin: 0;">
+                    <input type="hidden" name="extension_minutes" value="30">
+                    <button type="submit" class="btn btn-secondary reservation-action-btn">Extend 30 min</button>
+                  </form>
+
+                  <form method="POST" action="{{ url_for('extend_reservation', reservation_id=reservation.id) }}" style="margin: 0;">
+                    <input type="hidden" name="extension_minutes" value="60">
+                    <button type="submit" class="btn btn-secondary reservation-action-btn">Extend 1 hour</button>
+                  </form>
+
+                  <form method="POST" action="{{ url_for('cancel_reservation', reservation_id=reservation.id) }}" style="margin: 0;">
+                    <button type="submit" class="btn btn-secondary reservation-action-btn">Cancel Reservation</button>
+                  </form>
+                </div>
               </div>
             {% endfor %}
           </div>
@@ -133,16 +201,23 @@
                   </div>
                   <div class="reservation-meta-box">
                     <span class="reservation-label">Status</span>
-                    <span class="reservation-value">{{ reservation.status|capitalize }}</span>
+                    <span class="reservation-value">{{ reservation.formatted_status }}</span>
                   </div>
                 </div>
 
                 <div class="reservation-time reservation-time-soft">
                   <p><strong>Started</strong><br>{{ reservation.formatted_start }}</p>
                   <p><strong>Ended</strong><br>{{ reservation.formatted_end }}</p>
+                  <p><strong>Estimated Cost</strong><br>
+                    {% if reservation.estimated_cost is not none %}
+                      ${{ '%.2f'|format(reservation.estimated_cost) }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </p>
                 </div>
 
-                <p class="reservation-cancelled-note">This reservation is no longer active.</p>
+                <p class="reservation-cancelled-note">Status: {{ reservation.formatted_status }}</p>
               </div>
             {% endfor %}
           </div>
@@ -163,6 +238,17 @@
           historySection.style.display = "block";
           historySection.scrollIntoView({ behavior: "smooth", block: "start" });
         });
+      }
+
+      function toggleModifyForm(reservationId) {
+        const form = document.getElementById(`modify-form-${reservationId}`);
+        if (!form) return;
+
+        if (form.style.display === "none" || form.style.display === "") {
+          form.style.display = "grid";
+        } else {
+          form.style.display = "none";
+        }
       }
     </script>
   </body>
