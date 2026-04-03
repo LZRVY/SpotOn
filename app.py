@@ -67,7 +67,7 @@ def home():
 
     cur.execute("""
         SELECT name, address
-        FROM parking_lots
+        FROM public.parking_lots
         ORDER BY name ASC
     """)
     parking_lots = cur.fetchall()
