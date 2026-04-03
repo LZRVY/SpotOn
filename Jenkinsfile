@@ -1,49 +1,46 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        APP_PORT = "5055"
+  options {
+    skipDefaultCheckout(true)
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
     }
 
-    stages {
-
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
-
-        stage('Setup Python') {
-            steps {
-                sh '''
-                python3 -m venv venv
-                source venv/bin/activate
-                pip install -r requirements.txt
-                '''
-            }
-        }
-
-stage('Run App') {
-    steps {
+    stage('Setup Python') {
+      steps {
         sh '''
-        pkill -f app.py || true
-        sleep 2
-
-        nohup venv/bin/python app.py > app.log 2>&1 &
-
-        sleep 5
-        lsof -i :5055 || true
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install -r requirements.txt
         '''
-    }
- }
+      }
     }
 
-    post {
-        success {
-            echo "App running at http://127.0.0.1:5055"
-        }
-        failure {
-            echo "Build failed"
-        }
+    stage('Setup DB') {
+      steps {
+        sh '''
+          dropdb --if-exists smart_parking || true
+          createdb smart_parking || true
+          psql smart_parking < dump.sql
+        '''
+      }
     }
+
+    stage('Run App') {
+      steps {
+        sh '''
+          . venv/bin/activate
+          python app.py &
+        '''
+      }
+    }
+
+  }
 }
