@@ -3,7 +3,7 @@
     {% set active_endpoint = request.endpoint or '' %}
     <div class="driver-static-nav-links">
       <a href="{{ url_for('dashboard') }}" class="text-logo">Spot<span>On</span></a>
-      <a href="{{ url_for('search') }}" class="driver-static-nav-link {% if active_endpoint in ['search', 'lot_details', 'booking_receipt'] %}active{% endif %}">Search parking</a>
+      <a href="{{ url_for('search') }}" class="driver-static-nav-link {% if active_endpoint in ['search', 'price_compare', 'lot_details', 'booking_receipt'] %}active{% endif %}">Search parking</a>
       <a href="{{ url_for('dashboard') }}" class="driver-static-nav-link {% if active_endpoint in ['dashboard', 'transaction_history_page'] %}active{% endif %}">Reservations</a>
       <a href="{{ url_for('manage_account') }}" class="driver-static-nav-link {% if active_endpoint in ['manage_account', 'account_personal_info', 'account_security', 'profile', 'vehicles', 'favorites'] %}active{% endif %}">Manage account</a>
       <a href="{{ url_for('support_faq') }}" class="driver-static-nav-link {% if active_endpoint in ['support_faq', 'support_self_service'] %}active{% endif %}">Support</a>

@@ -1483,11 +1483,62 @@ textarea:focus {
   text-align: center;
 }
 
-.lot-detail-summary {
+/* Summary tiles (operator fleet header, lot cards, lot detail header, reservations) */
+.inv-summary-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 18px;
-  margin-top: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 20px 0 8px;
+}
+
+.inv-summary-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fafafa;
+}
+
+.inv-summary-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.inv-summary-value {
+  margin: 4px 0 0;
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #111827;
+  letter-spacing: -0.02em;
+}
+
+.inv-summary-value--compact {
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+
+.inv-summary-strip--compact {
+  margin: 0 0 14px;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+}
+
+.inv-summary-strip--detail {
+  margin: 12px 0 18px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.inv-summary-strip--reservation {
+  margin: 0 0 16px;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px;
 }
 
 .lot-view-btn {

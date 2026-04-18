@@ -32,6 +32,10 @@
 
       <div class="search-topbar">
         <div class="search-topbar-actions">
+          <a
+            href="{{ url_for('price_compare') }}{% if request.query_string %}?{{ request.query_string.decode('utf-8') }}{% endif %}"
+            class="topbar-btn topbar-btn-secondary"
+          >Compare prices</a>
           {% if user_role == "driver" %}
             <a href="{{ url_for('dashboard') }}" class="topbar-btn topbar-btn-secondary">
               Back to Dashboard
@@ -256,16 +260,16 @@
 
           <p class="lot-location">{{ lot.location }}</p>
 
-          <div class="lot-stats">
-            <div class="lot-stat">
-              <span class="lot-stat-label">Price</span>
-              <span class="lot-stat-value">${{ '%.2f'|format(lot.price_per_hour) }}/hr</span>
+          <div class="inv-summary-strip inv-summary-strip--compact" role="group" aria-label="Quick facts for {{ lot.name }}">
+            <div class="inv-summary-card">
+              <p class="inv-summary-label">Price</p>
+              <p class="inv-summary-value">${{ '%.2f'|format(lot.price_per_hour) }}/hr</p>
             </div>
-            <div class="lot-stat">
-              <span class="lot-stat-label">Available</span>
-              <span class="lot-stat-value">
+            <div class="inv-summary-card">
+              <p class="inv-summary-label">Available</p>
+              <p class="inv-summary-value">
                 {{ lot.available_slots }} slot{% if lot.available_slots != 1 %}s{% endif %}
-              </span>
+              </p>
             </div>
           </div>
 

@@ -156,10 +156,66 @@
         border-top: 1px solid #ececec;
       }
 
+      .pricing-details {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #fafafa;
+        overflow: hidden;
+      }
+
+      .pricing-details-summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 10px 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        user-select: none;
+      }
+
+      .pricing-details-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .pricing-details-summary::marker {
+        content: "";
+      }
+
+      .pricing-details-summary-text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .pricing-details[open] .slot-card-details-chevron,
+      .slot-toggle-details[open] .slot-card-details-chevron {
+        transform: rotate(225deg);
+        margin-top: 0.15em;
+      }
+
+      .pricing-details-panel {
+        padding: 0 12px 12px;
+        border-top: 1px solid #ececec;
+        background: #fff;
+      }
+
       .pricing-title {
         margin: 0 0 8px;
         font-size: 0.95rem;
         color: #444;
+      }
+
+      .pricing-title--summary {
+        margin: 0;
+      }
+
+      .pricing-summary-base {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #6b7280;
       }
 
       .pricing-form {
@@ -176,19 +232,6 @@
         padding: 7px 9px;
       }
 
-      .pricing-override-form {
-        margin-top: 8px;
-        display: grid;
-        grid-template-columns: minmax(100px, 1fr) minmax(110px, 1fr);
-        gap: 6px;
-        align-items: center;
-      }
-
-      .pricing-override-form button {
-        grid-column: 1 / -1;
-        justify-self: start;
-      }
-
       .pricing-override-list {
         margin: 8px 0 0;
         display: grid;
@@ -196,18 +239,89 @@
       }
 
       .pricing-override-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
         font-size: 0.82rem;
         color: #555;
         background: #fff;
         border: 1px solid #ececec;
         border-radius: 8px;
-        padding: 6px 8px;
+        padding: 8px 10px;
+      }
+
+      .pricing-override-main {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .pricing-override-line {
+        font-weight: 750;
+        color: #222;
+      }
+
+      .pricing-override-updated {
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: #888;
+      }
+
+      .pricing-remove-btn {
+        font-size: 0.76rem;
+        padding: 5px 10px;
+        min-height: 34px;
+      }
+
+      .pricing-override-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin: 0;
+      }
+
+      .pricing-override-form {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: minmax(100px, 1fr) minmax(110px, 1fr);
+        gap: 6px 10px;
+        align-items: end;
+      }
+
+      .pricing-override-form .pricing-override-label.po-label-full {
+        grid-column: 1 / -1;
+      }
+
+      .pricing-override-form input[name="price_per_hour"] {
+        grid-column: 1 / -1;
+        max-width: 220px;
+      }
+
+      .pricing-override-form button {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+
+      .pricing-hint {
+        margin: 6px 0 0;
+        font-size: 0.78rem;
+        color: #6b7280;
+        line-height: 1.45;
       }
 
       .slot-toggle-title {
         margin: 0 0 10px;
         font-size: 0.95rem;
         color: #444;
+      }
+
+      .slot-toggle-title--summary {
+        margin: 0;
       }
 
       .slot-toggle-list {
@@ -295,6 +409,57 @@
         flex-wrap: wrap;
       }
 
+      .slot-card-details {
+        margin-top: 4px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+      }
+
+      .slot-card-details-summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 8px 10px;
+        font-size: 0.8rem;
+        font-weight: 650;
+        color: #374151;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        user-select: none;
+      }
+
+      .slot-card-details-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .slot-card-details-summary::marker {
+        content: "";
+      }
+
+      .slot-card-details-chevron {
+        flex-shrink: 0;
+        width: 0.55em;
+        height: 0.55em;
+        border-right: 2px solid #6b7280;
+        border-bottom: 2px solid #6b7280;
+        transform: rotate(45deg);
+        margin-top: -0.2em;
+        transition: transform 0.15s ease;
+      }
+
+      .slot-card-details[open] .slot-card-details-chevron {
+        transform: rotate(225deg);
+        margin-top: 0.15em;
+      }
+
+      .slot-card-details-panel {
+        padding: 8px 10px 10px;
+        border-top: 1px solid #ececec;
+      }
+
       .slot-edit-form {
         display: grid;
         grid-template-columns: minmax(110px, 1fr) minmax(130px, 1fr) auto;
@@ -322,6 +487,85 @@
           grid-template-columns: 1fr;
         }
       }
+
+      .inv-toolbar {
+        margin: 16px 0 24px;
+        padding: 14px 16px;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        background: #fff;
+      }
+
+      .inv-toolbar-title {
+        margin: 0 0 10px;
+        font-size: 0.92rem;
+        font-weight: 800;
+        color: #111827;
+      }
+
+      .inv-toolbar-grid {
+        display: grid;
+        grid-template-columns: minmax(160px, 1.2fr) repeat(3, minmax(120px, 1fr)) auto;
+        gap: 10px 12px;
+        align-items: end;
+      }
+
+      .inv-toolbar-field label {
+        display: block;
+        margin: 0 0 4px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+
+      .inv-toolbar-field input,
+      .inv-toolbar-field select {
+        width: 100%;
+        box-sizing: border-box;
+        font-size: 0.88rem;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+      }
+
+      .inv-toolbar-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
+      .inv-toolbar-actions .btn {
+        white-space: nowrap;
+        min-height: 40px;
+      }
+
+      .inv-slot-occupancy {
+        margin: 0;
+        font-size: 0.78rem;
+        font-weight: 650;
+        color: #4b5563;
+      }
+
+      .inv-slot-occupancy--busy {
+        color: #9a3412;
+      }
+
+      .inv-slot-occupancy--clear {
+        color: #166534;
+      }
+
+      @media (max-width: 960px) {
+        .inv-toolbar-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .inv-toolbar-actions {
+          grid-column: 1 / -1;
+          justify-content: flex-start;
+        }
+      }
     </style>
   </head>
   <body class="auth-page operator-page">
@@ -341,6 +585,76 @@
           </div>
         {% endif %}
       {% endwith %}
+
+      <section class="inv-summary-strip" aria-label="Fleet inventory summary">
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Parking lots</p>
+          <p class="inv-summary-value">{{ inventory_summary.lot_count }}</p>
+        </div>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Total slots</p>
+          <p class="inv-summary-value">{{ inventory_summary.slot_count }}</p>
+        </div>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Available now</p>
+          <p class="inv-summary-value">{{ inventory_summary.available_now_total }}</p>
+        </div>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Occupied now</p>
+          <p class="inv-summary-value">{{ inventory_summary.occupied_slot_count }}</p>
+        </div>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Out of service</p>
+          <p class="inv-summary-value">{{ inventory_summary.oos_slot_count }}</p>
+        </div>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Inactive (listed)</p>
+          <p class="inv-summary-value">{{ inventory_summary.inactive_slot_count }}</p>
+        </div>
+      </section>
+
+      <section class="inv-toolbar" aria-label="Filter and export inventory">
+        <h2 class="inv-toolbar-title">Slot inventory filters</h2>
+        <div class="inv-toolbar-grid">
+          <div class="inv-toolbar-field">
+            <label for="inventory-search">Search by label</label>
+            <input
+              type="search"
+              id="inventory-search"
+              placeholder="e.g. A1, M3"
+              autocomplete="off"
+            />
+          </div>
+          <div class="inv-toolbar-field">
+            <label for="inventory-lot-filter">Lot</label>
+            <select id="inventory-lot-filter">
+              <option value="">All lots</option>
+              {% for lot in lots %}
+                <option value="{{ lot.id }}">{{ lot.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="inv-toolbar-field">
+            <label for="inventory-service-filter">Service status</label>
+            <select id="inventory-service-filter">
+              <option value="">Any</option>
+              <option value="AVAILABLE">Available</option>
+              <option value="OUT_OF_SERVICE">Out of service</option>
+            </select>
+          </div>
+          <div class="inv-toolbar-field">
+            <label for="inventory-listed-filter">Listed active</label>
+            <select id="inventory-listed-filter">
+              <option value="">Any</option>
+              <option value="active">Active only</option>
+              <option value="inactive">Inactive only</option>
+            </select>
+          </div>
+          <div class="inv-toolbar-actions">
+            <a href="{{ url_for('operator_inventory_export_csv') }}" class="btn btn-secondary">Export CSV</a>
+          </div>
+        </div>
+      </section>
 
       <div class="search-topbar">
         <p class="topbar-user-line">
@@ -467,9 +781,9 @@
       {% if lots %}
         <div id="lot-pricing-section" class="operator-lot-anchor" style="scroll-margin-top: 12px"></div>
         <h2 class="operator-lot-section-title">Parking lots &amp; live inventory</h2>
-        <div class="lot-grid">
+        <div class="lot-grid" id="operator-lot-grid">
           {% for lot in lots %}
-            <div class="lot-card">
+            <div class="lot-card" data-lot-id="{{ lot.id }}">
               <div class="lot-card-header">
                 <h3>{{ lot.name }}</h3>
                 <span class="lot-badge">Live Status</span>
@@ -477,122 +791,215 @@
 
               <p class="lot-location">{{ lot.address }}</p>
 
-              <div class="lot-stats">
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Total Slots</span>
-                  <span class="lot-stat-value">{{ lot.total_slots }}</span>
+              <div
+                class="inv-summary-strip inv-summary-strip--compact"
+                role="group"
+                aria-label="Slot counts for {{ lot.name }}"
+              >
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Total slots</p>
+                  <p class="inv-summary-value">{{ lot.total_slots }}</p>
                 </div>
-
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Active Slots</span>
-                  <span class="lot-stat-value">{{ lot.active_slots }}</span>
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Active slots</p>
+                  <p class="inv-summary-value">{{ lot.active_slots }}</p>
                 </div>
-
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Inactive Slots</span>
-                  <span class="lot-stat-value">{{ lot.inactive_slots }}</span>
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Inactive slots</p>
+                  <p class="inv-summary-value">{{ lot.inactive_slots }}</p>
                 </div>
-
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Available Now</span>
-                  <span class="lot-stat-value">{{ lot.available_now }}</span>
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Available now</p>
+                  <p class="inv-summary-value">{{ lot.available_now }}</p>
                 </div>
               </div>
 
               <div class="pricing-section">
-                <h4 class="pricing-title">Pricing</h4>
-                <form method="POST" action="{{ url_for('update_lot_base_price', lot_id=lot.id) }}" class="pricing-form">
-                  <input
-                    type="number"
-                    name="price_per_hour"
-                    min="0"
-                    step="0.01"
-                    value="{{ '%.2f'|format(lot.price_per_hour or 0) }}"
-                    aria-label="Base price per hour for {{ lot.name }}"
-                    required
-                  >
-                  <button type="submit" class="btn btn-secondary slot-toggle-btn">Update Base</button>
-                </form>
+                <details class="pricing-details">
+                  <summary class="pricing-details-summary">
+                    <span class="pricing-details-summary-text">
+                      <span class="pricing-title pricing-title--summary">Base rate &amp; price overrides</span>
+                      <span class="pricing-summary-base">
+                        Current base ${{ '%.2f'|format(lot.price_per_hour or 0) }}/hr — open to edit
+                      </span>
+                    </span>
+                    <span class="slot-card-details-chevron" aria-hidden="true"></span>
+                  </summary>
+                  <div class="pricing-details-panel">
+                    <p class="pricing-hint" style="margin-top: 10px;">
+                      Base rate applies when no override matches. Overrides use the most specific rule:
+                      slot+vehicle, then slot+any vehicle, then any slot+vehicle, then any/any.
+                    </p>
+                    <label class="pricing-override-label" for="base-price-{{ lot.id }}" style="display: block; margin: 10px 0 4px;">Base $/hour</label>
+                    <form method="POST" action="{{ url_for('update_lot_base_price', lot_id=lot.id) }}" class="pricing-form">
+                      <input
+                        id="base-price-{{ lot.id }}"
+                        type="number"
+                        name="price_per_hour"
+                        min="0"
+                        step="0.01"
+                        value="{{ '%.2f'|format(lot.price_per_hour or 0) }}"
+                        aria-label="Base price per hour for {{ lot.name }}"
+                        required
+                      >
+                      <button type="submit" class="btn btn-secondary slot-toggle-btn">Update base rate</button>
+                    </form>
 
-                <form method="POST" action="{{ url_for('update_lot_price_override', lot_id=lot.id) }}" class="pricing-override-form">
-                  <input type="text" name="slot_type" placeholder="slot type or any" aria-label="Slot type override for {{ lot.name }}">
-                  <select name="vehicle_type" aria-label="Vehicle type override for {{ lot.name }}">
-                    <option value="">Any vehicle</option>
-                    <option value="compact">Compact</option>
-                    <option value="sedan">Sedan</option>
-                    <option value="suv">SUV</option>
-                    <option value="truck">Truck</option>
-                  </select>
-                  <input type="number" name="price_per_hour" min="0" step="0.01" placeholder="price / hr" required>
-                  <button type="submit" class="btn btn-secondary slot-toggle-btn">Save Override</button>
-                </form>
+                    <form method="POST" action="{{ url_for('update_lot_price_override', lot_id=lot.id) }}" class="pricing-override-form">
+                      <label class="pricing-override-label" for="po-slot-{{ lot.id }}">Slot type</label>
+                      <label class="pricing-override-label" for="po-veh-{{ lot.id }}">Vehicle</label>
+                      <input
+                        type="text"
+                        id="po-slot-{{ lot.id }}"
+                        name="slot_type"
+                        placeholder="e.g. ev or leave blank for any"
+                        aria-label="Slot type key for override on {{ lot.name }}"
+                        autocomplete="off"
+                      >
+                      <select id="po-veh-{{ lot.id }}" name="vehicle_type" aria-label="Vehicle type key for override on {{ lot.name }}">
+                        <option value="">Any vehicle</option>
+                        <option value="compact">Compact</option>
+                        <option value="sedan">Sedan</option>
+                        <option value="suv">SUV</option>
+                        <option value="truck">Truck</option>
+                      </select>
+                      <label class="pricing-override-label po-label-full" for="po-price-{{ lot.id }}">Override $/hour</label>
+                      <input
+                        id="po-price-{{ lot.id }}"
+                        type="number"
+                        name="price_per_hour"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        required
+                      >
+                      <button type="submit" class="btn btn-secondary slot-toggle-btn">Save override</button>
+                    </form>
 
-                {% if lot.pricing_overrides %}
-                  <div class="pricing-override-list">
-                    {% for override in lot.pricing_overrides %}
-                      <div class="pricing-override-item">
-                        {{ override.slot_type|upper }} / {{ override.vehicle_type|upper }}: ${{ '%.2f'|format(override.price_per_hour) }}/hr
+                    {% if lot.pricing_overrides %}
+                      <p class="pricing-hint" style="margin-top: 10px; margin-bottom: 4px;">Active overrides (newest updates first)</p>
+                      <div class="pricing-override-list">
+                        {% for override in lot.pricing_overrides %}
+                          <div class="pricing-override-item">
+                            <div class="pricing-override-main">
+                              <span class="pricing-override-line">
+                                {{ override.slot_type|upper }} / {{ override.vehicle_type|upper }}:
+                                ${{ '%.2f'|format(override.price_per_hour) }}/hr
+                              </span>
+                              <span class="pricing-override-updated">Updated {{ override.updated_at_display }}</span>
+                            </div>
+                            <form
+                              method="POST"
+                              action="{{ url_for('remove_lot_price_override', lot_id=lot.id) }}"
+                              class="slot-toggle-form"
+                              onsubmit="return confirm('Remove this override? Pricing will fall back to the next matching rule or the lot base rate.');"
+                            >
+                              <input type="hidden" name="slot_type" value="{{ override.slot_type }}">
+                              <input type="hidden" name="vehicle_type" value="{{ override.vehicle_type }}">
+                              <button type="submit" class="btn btn-secondary pricing-remove-btn">Remove</button>
+                            </form>
+                          </div>
+                        {% endfor %}
                       </div>
-                    {% endfor %}
+                    {% endif %}
                   </div>
-                {% endif %}
+                </details>
               </div>
 
               <div class="slot-toggle-section">
-                <h4 class="slot-toggle-title">Quick Slot Activation</h4>
-                {% if lot.slots %}
-                  <div class="slot-toggle-list">
-                    {% for slot in lot.slots %}
-                      <div class="slot-toggle-item">
-                        <div class="slot-toggle-meta">
-                          <span class="slot-toggle-label">{{ slot.label }}</span>
-                          <div class="slot-toggle-badges">
-                            <span class="slot-toggle-pill {{ 'active' if slot.is_active else 'inactive' }}">
-                              {{ "Active" if slot.is_active else "Inactive" }}
-                            </span>
-                            <span class="slot-toggle-pill {{ 'available' if slot.status == 'AVAILABLE' else 'out-of-service' }}">
-                              {{ "Available" if slot.status == 'AVAILABLE' else "Out of Service" }}
-                            </span>
+                <details class="pricing-details slot-toggle-details">
+                  <summary class="pricing-details-summary">
+                    <span class="pricing-details-summary-text">
+                      <span class="slot-toggle-title slot-toggle-title--summary">Quick Slot Activation</span>
+                      <span class="pricing-summary-base">
+                        {{ (lot.slots or [])|length }} slot{{ 's' if (lot.slots or [])|length != 1 else '' }} — open to manage
+                      </span>
+                    </span>
+                    <span class="slot-card-details-chevron" aria-hidden="true"></span>
+                  </summary>
+                  <div class="pricing-details-panel">
+                    <p class="pricing-hint" style="margin-top: 10px;">
+                      Toggle active / service status per slot. Use “Slot type &amp; vehicle rules” under a row only when you need to edit those fields.
+                    </p>
+                    {% if lot.slots %}
+                      <div class="slot-toggle-list">
+                        {% for slot in lot.slots %}
+                          <div
+                            class="slot-toggle-item"
+                            data-slot-label="{{ (slot.label or '')|lower }}"
+                            data-service-status="{{ slot.status }}"
+                            data-listed-active="{{ 'yes' if slot.is_active else 'no' }}"
+                            data-occupied-now="{{ 'yes' if slot.occupied_now else 'no' }}"
+                            data-lot-id="{{ lot.id }}"
+                          >
+                            <div class="slot-toggle-meta">
+                              <span class="slot-toggle-label">{{ slot.label }}</span>
+                              <div class="slot-toggle-badges">
+                                <span class="slot-toggle-pill {{ 'active' if slot.is_active else 'inactive' }}">
+                                  {{ "Active" if slot.is_active else "Inactive" }}
+                                </span>
+                                <span class="slot-toggle-pill {{ 'available' if slot.status == 'AVAILABLE' else 'out-of-service' }}">
+                                  {{ "Available" if slot.status == 'AVAILABLE' else "Out of Service" }}
+                                </span>
+                              </div>
+                            </div>
+                            <p
+                              class="inv-slot-occupancy {{ 'inv-slot-occupancy--busy' if slot.occupied_now else 'inv-slot-occupancy--clear' }}"
+                            >
+                              {% if slot.occupied_now %}
+                                Occupied now — active reservation in this window
+                              {% else %}
+                                Not occupied at this moment
+                              {% endif %}
+                            </p>
+                            <div class="slot-toggle-actions">
+                              <form method="POST" action="{{ url_for('toggle_slot_active', slot_id=slot.id) }}" class="slot-toggle-form">
+                                <button type="submit" class="btn btn-secondary slot-toggle-btn">
+                                  {{ "Set Inactive" if slot.is_active else "Set Active" }}
+                                </button>
+                              </form>
+                              <form method="POST" action="{{ url_for('toggle_slot_status', slot_id=slot.id) }}" class="slot-toggle-form">
+                                <button type="submit" class="btn btn-secondary slot-toggle-btn">
+                                  {{ "Out of Service" if slot.status == 'AVAILABLE' else "Set Available" }}
+                                </button>
+                              </form>
+                            </div>
+                            <details class="slot-card-details">
+                              <summary class="slot-card-details-summary">
+                                <span>Slot type &amp; vehicle rules</span>
+                                <span class="slot-card-details-chevron" aria-hidden="true"></span>
+                              </summary>
+                              <div class="slot-card-details-panel">
+                                <form method="POST" action="{{ url_for('update_slot_details', slot_id=slot.id) }}" class="slot-edit-form">
+                                  <input
+                                    type="text"
+                                    name="slot_type"
+                                    value="{{ slot.slot_type }}"
+                                    aria-label="Slot type for {{ slot.label }}"
+                                    required
+                                  >
+                                  <select
+                                    name="supported_vehicle_type"
+                                    aria-label="Supported vehicle type for {{ slot.label }}"
+                                    required
+                                  >
+                                    <option value="compact" {% if slot.supported_vehicle_type == 'compact' %}selected{% endif %}>Compact</option>
+                                    <option value="sedan" {% if slot.supported_vehicle_type == 'sedan' %}selected{% endif %}>Sedan</option>
+                                    <option value="suv" {% if slot.supported_vehicle_type == 'suv' %}selected{% endif %}>SUV</option>
+                                    <option value="truck" {% if slot.supported_vehicle_type == 'truck' %}selected{% endif %}>Truck</option>
+                                  </select>
+                                  <button type="submit" class="btn btn-secondary slot-toggle-btn">Save</button>
+                                </form>
+                              </div>
+                            </details>
                           </div>
-                        </div>
-                        <div class="slot-toggle-actions">
-                          <form method="POST" action="{{ url_for('toggle_slot_active', slot_id=slot.id) }}" class="slot-toggle-form">
-                            <button type="submit" class="btn btn-secondary slot-toggle-btn">
-                              {{ "Set Inactive" if slot.is_active else "Set Active" }}
-                            </button>
-                          </form>
-                          <form method="POST" action="{{ url_for('toggle_slot_status', slot_id=slot.id) }}" class="slot-toggle-form">
-                            <button type="submit" class="btn btn-secondary slot-toggle-btn">
-                              {{ "Out of Service" if slot.status == 'AVAILABLE' else "Set Available" }}
-                            </button>
-                          </form>
-                        </div>
-                        <form method="POST" action="{{ url_for('update_slot_details', slot_id=slot.id) }}" class="slot-edit-form">
-                          <input
-                            type="text"
-                            name="slot_type"
-                            value="{{ slot.slot_type }}"
-                            aria-label="Slot type for {{ slot.label }}"
-                            required
-                          >
-                          <select
-                            name="supported_vehicle_type"
-                            aria-label="Supported vehicle type for {{ slot.label }}"
-                            required
-                          >
-                            <option value="compact" {% if slot.supported_vehicle_type == 'compact' %}selected{% endif %}>Compact</option>
-                            <option value="sedan" {% if slot.supported_vehicle_type == 'sedan' %}selected{% endif %}>Sedan</option>
-                            <option value="suv" {% if slot.supported_vehicle_type == 'suv' %}selected{% endif %}>SUV</option>
-                            <option value="truck" {% if slot.supported_vehicle_type == 'truck' %}selected{% endif %}>Truck</option>
-                          </select>
-                          <button type="submit" class="btn btn-secondary slot-toggle-btn">Save</button>
-                        </form>
+                        {% endfor %}
                       </div>
-                    {% endfor %}
+                    {% else %}
+                      <p class="sidecard-helper" style="margin-top: 10px;">No slots added for this lot yet.</p>
+                    {% endif %}
                   </div>
-                {% else %}
-                  <p class="sidecard-helper">No slots added for this lot yet.</p>
-                {% endif %}
+                </details>
               </div>
             </div>
           {% endfor %}
@@ -707,6 +1114,71 @@
   lotSelect.addEventListener("change", () => {
     loadSlotLabelsForLot(lotSelect.value);
   });
+
+  (function initInventoryFilters() {
+    const search = document.getElementById("inventory-search");
+    const lotFilter = document.getElementById("inventory-lot-filter");
+    const serviceFilter = document.getElementById("inventory-service-filter");
+    const listedFilter = document.getElementById("inventory-listed-filter");
+    const lotCards = Array.from(document.querySelectorAll(".lot-card[data-lot-id]"));
+    if (!search || !lotCards.length) {
+      return;
+    }
+
+    function applyInventoryFilters() {
+      const q = (search.value || "").trim().toLowerCase();
+      const lotId = (lotFilter && lotFilter.value) || "";
+      const service = (serviceFilter && serviceFilter.value) || "";
+      const listed = (listedFilter && listedFilter.value) || "";
+
+      lotCards.forEach((card) => {
+        const thisLot = card.getAttribute("data-lot-id") || "";
+        if (lotId && thisLot !== lotId) {
+          card.hidden = true;
+          return;
+        }
+        card.hidden = false;
+
+        const items = card.querySelectorAll(".slot-toggle-item[data-slot-label]");
+        let visible = 0;
+        items.forEach((item) => {
+          const label = item.getAttribute("data-slot-label") || "";
+          const svc = item.getAttribute("data-service-status") || "";
+          const act = item.getAttribute("data-listed-active") || "";
+          let show = true;
+          if (q && !label.includes(q)) {
+            show = false;
+          }
+          if (service && svc !== service) {
+            show = false;
+          }
+          if (listed === "active" && act !== "yes") {
+            show = false;
+          }
+          if (listed === "inactive" && act !== "no") {
+            show = false;
+          }
+          item.hidden = !show;
+          if (show) {
+            visible += 1;
+          }
+        });
+
+        const hasSlotFilters = Boolean(q || service || listed);
+        if (hasSlotFilters && visible === 0) {
+          card.hidden = true;
+        }
+      });
+    }
+
+    [search, lotFilter, serviceFilter, listedFilter].forEach((el) => {
+      if (!el) {
+        return;
+      }
+      el.addEventListener("input", applyInventoryFilters);
+      el.addEventListener("change", applyInventoryFilters);
+    });
+  })();
 </script>
   </body>
 </html>

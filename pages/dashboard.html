@@ -92,6 +92,17 @@
         transition: opacity 0.24s ease, transform 0.24s ease;
       }
 
+      /* Invisible hit-target so the pointer can cross the visual gap under the
+         summary without leaving <details> (avoids hover-close firing early). */
+      .toolbar-dropdown-panel::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -14px;
+        height: 14px;
+      }
+
       .toolbar-dropdown[open] .toolbar-dropdown-panel {
         opacity: 1;
         transform: translateY(0);
@@ -119,6 +130,18 @@
 
       .toolbar-dropdown-panel .menu-link.menu-link-danger {
         color: #b42318;
+        border-radius: 10px;
+        transition: background 0.18s ease, color 0.18s ease;
+      }
+
+      .toolbar-dropdown-panel .menu-link.menu-link-danger:hover {
+        background: #fef2f2;
+        color: #991b1b;
+      }
+
+      .toolbar-dropdown-panel .menu-link.menu-link-danger:focus-visible {
+        outline: 2px solid #b42318;
+        outline-offset: 2px;
       }
 
       .toolbar-dropdown form {
@@ -273,6 +296,23 @@
         font-size: 0.8rem;
         font-weight: 800;
         text-align: center;
+        text-decoration: none;
+        transition:
+          background 0.18s ease,
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      .user-menu-chip:hover {
+        background: #e8eaef;
+        border-color: #cbd5e1;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+      }
+
+      .user-menu-chip:focus-visible {
+        outline: 2px solid #111827;
+        outline-offset: 2px;
       }
 
       .user-menu-chip-icon {
@@ -302,6 +342,17 @@
         padding: 14px 8px;
         border-bottom: 1px solid #efefef;
         text-decoration: none;
+        border-radius: 10px;
+        transition: background 0.18s ease;
+      }
+
+      .user-menu-row:hover {
+        background: #f3f4f6;
+      }
+
+      .user-menu-row:focus-visible {
+        outline: 2px solid #111827;
+        outline-offset: 0;
       }
 
       .user-menu-row:last-child {
@@ -357,6 +408,23 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        transition:
+          background 0.18s ease,
+          border-color 0.18s ease,
+          color 0.18s ease,
+          box-shadow 0.18s ease;
+      }
+
+      .user-menu-signout:hover {
+        background: #e8eaef;
+        border-color: #cbd5e1;
+        color: #b91c1c;
+        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+      }
+
+      .user-menu-signout:focus-visible {
+        outline: 2px solid #d7263d;
+        outline-offset: 2px;
       }
 
       .dash-toolbar {
@@ -645,7 +713,7 @@
                         <path d="M20 7h-4V6a4 4 0 0 0-8 0v1H4a2 2 0 0 0-2 2v10a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3V9a2 2 0 0 0-2-2ZM10 6a2 2 0 1 1 4 0v1h-4V6Zm10 13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6h16v6Zm0-8H4V9h16v2Z"/>
                       </svg>
                     </span>
-                    <span>Wallet</span>
+                    <span>Search lots</span>
                   </a>
                   <a href="{{ url_for('transaction_history_page') }}" class="user-menu-chip">
                     <span class="user-menu-chip-icon" aria-hidden="true">
@@ -785,6 +853,52 @@
         </div>
       </div>
 
+      {% if pending_approvals %}
+        <div class="dash-section">
+          <div class="dash-section__head">
+            <h2 class="dash-section__title">Awaiting garage approval</h2>
+          </div>
+          <p class="dash-intro" style="margin-top: 0">
+            These requests are on hold until an operator confirms them. You can withdraw a request before it is confirmed.
+          </p>
+          <div class="reservation-grid">
+            {% for reservation in pending_approvals %}
+              <div class="reservation-card reservation-card-soft" style="border-style: dashed">
+                <h3>{{ reservation.lot_name }}</h3>
+                <p class="reservation-location">{{ reservation.lot_address }}</p>
+                {% if reservation.bulk_peer_count > 1 %}
+                  <p style="margin: 6px 0 10px; font-size: 0.88rem; color: #2e7d32;">
+                    Group booking · {{ reservation.bulk_peer_count }} slots ({{ reservation.bulk_peer_slots_display }})
+                  </p>
+                {% endif %}
+                <div class="inv-summary-strip inv-summary-strip--reservation" role="group" aria-label="Booking details">
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Slot</p>
+                    <p class="inv-summary-value">{{ reservation.slot_label }}</p>
+                  </div>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Status</p>
+                    <p class="inv-summary-value">{{ reservation.formatted_status }}</p>
+                  </div>
+                </div>
+                <div class="reservation-time reservation-time-soft">
+                  <p><strong>Starts</strong><br>{{ reservation.formatted_start }}</p>
+                  <p><strong>Ends</strong><br>{{ reservation.formatted_end }}</p>
+                  <p><strong>Est. if approved</strong><br>
+                    {% if reservation.estimated_cost is not none %}
+                      ${{ '%.2f'|format(reservation.estimated_cost) }}
+                    {% else %}—{% endif %}
+                  </p>
+                </div>
+                <form method="POST" action="{{ url_for('cancel_reservation', reservation_id=reservation.id) }}" class="form-inline-reset">
+                  <button type="submit" class="btn btn-secondary reservation-action-btn">Withdraw request</button>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+
       <div class="dash-section">
         <div class="dash-section__head">
           <h2 class="dash-section__title">Your reservations</h2>
@@ -796,19 +910,24 @@
               <div class="reservation-card reservation-card-soft">
                 <h3>{{ reservation.lot_name }}</h3>
                 <p class="reservation-location">{{ reservation.lot_address }}</p>
+                {% if reservation.bulk_peer_count > 1 %}
+                  <p style="margin: 6px 0 10px; font-size: 0.88rem; color: #2e7d32;">
+                    Group booking · {{ reservation.bulk_peer_count }} slots ({{ reservation.bulk_peer_slots_display }})
+                  </p>
+                {% endif %}
 
-                <div class="reservation-meta">
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Slot</span>
-                    <span class="reservation-value">{{ reservation.slot_label }}</span>
+                <div class="inv-summary-strip inv-summary-strip--reservation" role="group" aria-label="Booking details">
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Slot</p>
+                    <p class="inv-summary-value">{{ reservation.slot_label }}</p>
                   </div>
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Booking ID</span>
-                    <span class="reservation-value">{{ reservation.booking_alias if reservation.booking_alias else reservation.id }}</span>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Booking ID</p>
+                    <p class="inv-summary-value inv-summary-value--compact">{{ reservation.booking_alias if reservation.booking_alias else reservation.id }}</p>
                   </div>
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Status</span>
-                    <span class="reservation-value">{{ reservation.formatted_status }}</span>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Status</p>
+                    <p class="inv-summary-value">{{ reservation.formatted_status }}</p>
                   </div>
                 </div>
 
@@ -933,19 +1052,24 @@
               <div class="reservation-card reservation-card-soft">
                 <h3>{{ reservation.lot_name }}</h3>
                 <p class="reservation-location">{{ reservation.lot_address }}</p>
+                {% if reservation.bulk_peer_count > 1 %}
+                  <p style="margin: 6px 0 10px; font-size: 0.88rem; color: #555;">
+                    Was a group booking · {{ reservation.bulk_peer_count }} slots ({{ reservation.bulk_peer_slots_display }})
+                  </p>
+                {% endif %}
 
-                <div class="reservation-meta">
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Slot</span>
-                    <span class="reservation-value">{{ reservation.slot_label }}</span>
+                <div class="inv-summary-strip inv-summary-strip--reservation" role="group" aria-label="Booking details">
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Slot</p>
+                    <p class="inv-summary-value">{{ reservation.slot_label }}</p>
                   </div>
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Booking ID</span>
-                    <span class="reservation-value">{{ reservation.booking_alias if reservation.booking_alias else reservation.id }}</span>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Booking ID</p>
+                    <p class="inv-summary-value inv-summary-value--compact">{{ reservation.booking_alias if reservation.booking_alias else reservation.id }}</p>
                   </div>
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Status</span>
-                    <span class="reservation-value">{{ reservation.formatted_status }}</span>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Status</p>
+                    <p class="inv-summary-value">{{ reservation.formatted_status }}</p>
                   </div>
                 </div>
 
@@ -1006,7 +1130,7 @@
 
         const canHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
         if (canHover) {
-          const hoverCloseDelayMs = 5;
+          const hoverCloseDelayMs = 220;
           const hoverCloseTimers = new Map();
 
           const clearCloseTimer = (dropdown) => {
