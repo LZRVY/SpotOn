@@ -62,23 +62,26 @@
         font-size: 0.9rem;
       }
 
-      .tx-card .reservation-meta {
-        margin-bottom: 10px;
+      .tx-card .inv-summary-strip--reservation {
+        margin: 0 0 10px;
       }
 
-      .tx-card .reservation-meta-box {
+      .tx-card .inv-summary-card {
         border-radius: 12px;
         padding: 10px 12px;
-        min-height: auto;
       }
 
-      .tx-card .reservation-label {
+      .tx-card .inv-summary-label {
         font-size: 0.66rem;
-        margin-bottom: 4px;
       }
 
-      .tx-card .reservation-value {
+      .tx-card .inv-summary-value {
         font-size: 1rem;
+      }
+
+      .tx-card .inv-summary-card .transaction-status-badge {
+        margin-top: 4px;
+        display: inline-flex;
       }
 
       .tx-details {
@@ -152,13 +155,13 @@
                   {% endif %}
                 </p>
 
-                <div class="reservation-meta transaction-meta">
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Amount</span>
-                    <span class="reservation-value">{{ transaction.formatted_amount }}</span>
+                <div class="inv-summary-strip inv-summary-strip--reservation transaction-meta" role="group" aria-label="Transaction summary">
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Amount</p>
+                    <p class="inv-summary-value">{{ transaction.formatted_amount }}</p>
                   </div>
-                  <div class="reservation-meta-box">
-                    <span class="reservation-label">Status</span>
+                  <div class="inv-summary-card">
+                    <p class="inv-summary-label">Status</p>
                     <span class="transaction-status-badge transaction-status-{{ transaction.status|lower }}">{{ transaction.status|capitalize }}</span>
                   </div>
                 </div>

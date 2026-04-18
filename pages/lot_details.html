@@ -125,6 +125,100 @@
         cursor: not-allowed;
       }
 
+      /* Bulk slot list: avoid nested <label> flex + global `label {}` rules breaking layout */
+      .bulk-slot-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 16px;
+        width: 100%;
+      }
+
+      .bulk-slot-row {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding-bottom: 12px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid #dfeae0;
+      }
+
+      .bulk-slot-row:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .bulk-slot-line {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .bulk-slot-line input[type="checkbox"] {
+        flex: 0 0 auto;
+        width: 18px;
+        height: 18px;
+        margin-top: 3px;
+        accent-color: #111;
+      }
+
+      .bulk-slot-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 0.95rem;
+        font-weight: 500;
+        line-height: 1.45;
+        color: #222;
+        cursor: pointer;
+        text-transform: none;
+        letter-spacing: normal;
+        white-space: normal;
+        word-break: normal;
+        overflow-wrap: break-word;
+        writing-mode: horizontal-tb;
+      }
+
+      .bulk-slot-text .bulk-slot-kind {
+        color: #666;
+        font-weight: 400;
+      }
+
+      .bulk-row-vehicle {
+        width: 100%;
+        max-width: min(440px, 100%);
+        margin-left: 30px;
+      }
+
+      .bulk-row-vehicle:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .bulk-booking-panel {
+        min-width: 0;
+      }
+
+      /* Match `.slot-reserve-form` vertical date/time stack */
+      .bulk-datetime-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .bulk-payment-shell {
+        margin-top: 8px;
+      }
+
+      .bulk-payment-shell.is-collapsed {
+        display: none;
+      }
+
       .floating-flash-messages {
         position: fixed;
         right: 20px;
@@ -210,27 +304,156 @@
       </div>
       {% endif %}
 
-      <div class="lot-detail-summary">
-        <div class="lot-stat">
-          <span class="lot-stat-label">Address</span>
-          <span class="lot-stat-value">{{ lot.address }}</span>
+      <div class="inv-summary-strip inv-summary-strip--detail" role="group" aria-label="Lot summary">
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Address</p>
+          <p class="inv-summary-value inv-summary-value--compact">{{ lot.address }}</p>
         </div>
 
-        <div class="lot-stat">
-          <span class="lot-stat-label">Available Slots</span>
-          <span class="lot-stat-value">{{ lot.available_slots }}</span>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Available slots</p>
+          <p class="inv-summary-value">{{ lot.available_slots }}</p>
         </div>
 
-        <div class="lot-stat">
-          <span class="lot-stat-label">Type</span>
-          <span class="lot-stat-value">{{ lot.parking_type }}</span>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Type</p>
+          <p class="inv-summary-value">{{ lot.parking_type }}</p>
         </div>
 
-        <div class="lot-stat">
-          <span class="lot-stat-label">Price</span>
-          <span class="lot-stat-value">${{ lot.price_per_hour }}/hr</span>
+        <div class="inv-summary-card">
+          <p class="inv-summary-label">Price</p>
+          <p class="inv-summary-value">${{ lot.price_per_hour }}/hr</p>
         </div>
       </div>
+
+      {% if show_bulk_panel %}
+      <div
+        class="bulk-booking-panel"
+        style="margin: 28px 0 20px; padding: 20px 20px 22px; border: 1px solid #d9e8dc; border-radius: 18px; background: #f6fbf7;"
+      >
+        <h2 style="margin: 0 0 8px; font-size: 1.25rem;">Group booking (bulk)</h2>
+        <p style="margin: 0 0 16px; color: #444; line-height: 1.45; font-size: 0.95rem;">
+          Reserve <strong>one or more</strong> spaces for the <strong>same time window</strong> in one request.
+          Pick a vehicle <strong>per slot</strong> (so you can use different cars where slot rules differ).
+          Each slot is submitted for operator approval separately but stays linked as a group on your dashboard.
+          Promotional codes are <strong>not</strong> applied to group bookings.
+        </p>
+        <form
+          method="POST"
+          action="{{ url_for('reserve_bulk', lot_id=lot.id) }}"
+          class="bulk-reserve-form"
+          id="bulk-reserve-form"
+        >
+          <input type="hidden" name="user_timezone" class="bulk-user-timezone-input user-timezone-input" value="UTC">
+
+          <p class="reserve-label" style="margin-bottom: 8px;">Select slots and a vehicle for each</p>
+          <div class="bulk-slot-list">
+            {% for slot in slots %}
+              {% if slot.is_active and slot.status == 'AVAILABLE' and slot.is_available_now and not slot.reserved_by_current_user %}
+                <div class="bulk-slot-row">
+                  <div class="bulk-slot-line">
+                    <input
+                      type="checkbox"
+                      id="bulk_pick_{{ slot.id }}"
+                      name="slot_id"
+                      value="{{ slot.id }}"
+                      class="bulk-slot-cb"
+                      data-supported-vehicle-type="{{ (slot.supported_vehicle_type or '')|lower }}"
+                    >
+                    <label class="bulk-slot-text" for="bulk_pick_{{ slot.id }}">
+                      <strong>Slot {{ slot.label }}</strong><span class="bulk-slot-kind">
+                        — {{ (slot.slot_type or 'standard')|upper }} · {{ (slot.supported_vehicle_type or '—')|upper }}</span>
+                    </label>
+                  </div>
+                  <select
+                    id="bulk_v_{{ slot.id }}"
+                    name="vehicle_for_{{ slot.id }}"
+                    class="reserve-input bulk-row-vehicle"
+                    aria-label="Vehicle for slot {{ slot.label }}"
+                    disabled
+                  >
+                    <option value="">Vehicle for this slot</option>
+                    {% for vehicle in vehicles %}
+                      <option value="{{ vehicle.id }}" data-vehicle-type="{{ (vehicle.vehicle_type or '')|lower }}">
+                        {{ vehicle.plate_number }} — {{ vehicle.vehicle_type|upper if vehicle.vehicle_type else 'UNKNOWN' }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+
+          <div class="bulk-datetime-fields">
+            <label for="b_start_date" class="reserve-label">Start Date</label>
+            <input type="date" id="b_start_date" name="b_start_date" class="reserve-input" value="{{ start_date }}" required>
+
+            <label for="b_start_time_only" class="reserve-label">Start Time</label>
+            <select id="b_start_time_only" name="b_start_time_only" class="reserve-input" required>
+              <option value="">Select time</option>
+              {% for opt in time_options %}
+                <option value="{{ opt.value }}" {% if start_time_only == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+
+            <label for="b_end_date" class="reserve-label">End Date</label>
+            <input type="date" id="b_end_date" name="b_end_date" class="reserve-input" value="{{ end_date }}" required>
+
+            <label for="b_end_time_only" class="reserve-label">End Time</label>
+            <select id="b_end_time_only" name="b_end_time_only" class="reserve-input" required>
+              <option value="">Select time</option>
+              {% for opt in time_options %}
+                <option value="{{ opt.value }}" {% if end_time_only == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <p class="payment-gate-note js-bulk-payment-gate-note" style="margin-top: 4px;">
+            Select one or more slots, choose a matching vehicle for each selected slot, and set the full start/end window. Then continue to demo payment.
+          </p>
+
+          <div class="slot-payment-actions" style="margin-top: 12px;">
+            <button type="button" class="btn btn-secondary slot-action-btn js-bulk-continue-payment" disabled>
+              Continue to payment
+            </button>
+          </div>
+
+          <div class="bulk-payment-shell is-collapsed js-bulk-payment-shell" aria-hidden="true">
+            <p class="reserve-label" style="margin-bottom: 6px; margin-top: 4px;">Demo payment</p>
+            <p class="slot-payment-note" style="margin: 0 0 10px; font-size: 0.88rem; color: #666;">
+              Use demo card <strong>8111 1111 1111 1111</strong>, CVV <strong>007</strong>, expiry <strong>MM/YY</strong>.
+            </p>
+            <label for="bulk_cardholder_name" class="reserve-label">Cardholder name</label>
+            <input type="text" id="bulk_cardholder_name" name="cardholder_name" class="reserve-input js-bulk-pay-input" placeholder="Name on card" autocomplete="cc-name">
+
+            <label for="bulk_card_number" class="reserve-label">Card number</label>
+            <input
+              type="text"
+              id="bulk_card_number"
+              name="card_number"
+              class="reserve-input card-number-input js-bulk-pay-input"
+              placeholder="8111 1111 1111 1111"
+              inputmode="numeric"
+              maxlength="19"
+              autocomplete="cc-number"
+            >
+
+            <div class="slot-payment-grid">
+              <div>
+                <label for="bulk_expiry" class="reserve-label">Expiry</label>
+                <input type="text" id="bulk_expiry" name="expiry" class="reserve-input expiry-input js-bulk-pay-input" placeholder="MM/YY" maxlength="5" autocomplete="cc-exp">
+              </div>
+              <div>
+                <label for="bulk_cvv" class="reserve-label">CVV</label>
+                <input type="text" id="bulk_cvv" name="cvv" class="reserve-input cvv-input js-bulk-pay-input" placeholder="007" inputmode="numeric" maxlength="4" autocomplete="cc-csc">
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary js-bulk-submit-final" style="margin-top: 14px;">Submit group booking</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
 
       <h2 style="margin: 28px 0 18px;">Available Slots</h2>
 
@@ -259,7 +482,13 @@
             {% if user_role == "driver" %}
               {% if slot.is_active and slot.status == 'AVAILABLE' and slot.is_available_now %}
                 {% if vehicles %}
-                <form method="POST" action="{{ url_for('reserve_slot', slot_id=slot.id) }}" class="slot-reserve-form" data-slot-id="{{ slot.id }}">
+                <form
+                  method="POST"
+                  action="{{ url_for('reserve_slot', slot_id=slot.id) }}"
+                  class="slot-reserve-form"
+                  data-slot-id="{{ slot.id }}"
+                  data-supported-vehicle-type="{{ (slot.supported_vehicle_type or '')|lower }}"
+                >
                   <input type="hidden" name="lot_id" value="{{ lot.id }}">
                   <input type="hidden" name="user_timezone" class="user-timezone-input">
 
@@ -269,6 +498,7 @@
                     {% for vehicle in vehicles %}
                       <option
                         value="{{ vehicle.id }}"
+                        data-vehicle-type="{{ (vehicle.vehicle_type or '')|lower }}"
                         {% if retry_slot_id and retry_slot_id|string == slot.id|string and retry_vehicle_id and retry_vehicle_id|string == vehicle.id|string %}selected{% endif %}
                       >
                         {{ vehicle.plate_number }} — {{ vehicle.vehicle_type|upper if vehicle.vehicle_type else 'UNKNOWN' }}
@@ -315,7 +545,9 @@
     </option>
   {% endfor %}
 </select>
-                  <p class="payment-gate-note">Complete vehicle and time selection to continue to payment.</p>
+                  <p class="payment-gate-note js-payment-gate-note">
+                    Choose a vehicle that matches this slot’s supported type, set your times, then continue to payment.
+                  </p>
 
 <div class="slot-payment-shell is-collapsed js-payment-shell">
   <p class="slot-payment-title">Payment Details</p>
@@ -340,7 +572,7 @@
           id="card_number_{{ slot.id }}"
           name="card_number"
           class="reserve-input card-number-input"
-          placeholder="4111 1111 1111 1111"
+          placeholder="8111 1111 1111 1111"
           inputmode="numeric"
           maxlength="19"
           autocomplete="cc-number"
@@ -510,11 +742,16 @@
           startDate.value = formatDateLocal(minStart);
         }
 
-        const existingStartValue = startTime.value;
-        const startMinForDate = startDate.value === formatDateLocal(minStart) ? minStart : null;
-        buildHalfHourOptions(startTime, existingStartValue, startMinForDate, startDate.value);
+        let startMinForDate = startDate.value === formatDateLocal(minStart) ? minStart : null;
+        buildHalfHourOptions(startTime, startTime.value, startMinForDate, startDate.value);
 
-        const startDateTime = getDateTimeFromFields(startDate, startTime);
+        let startDateTime = getDateTimeFromFields(startDate, startTime);
+        if (startDateTime && startDateTime < minStart) {
+          startDate.value = formatDateLocal(minStart);
+          const snap = `${pad(minStart.getHours())}:${pad(minStart.getMinutes())}`;
+          buildHalfHourOptions(startTime, snap, minStart, startDate.value);
+          startDateTime = getDateTimeFromFields(startDate, startTime);
+        }
 
         let minEnd = null;
         if (startDateTime) {
@@ -543,6 +780,79 @@
         }
       }
 
+      /** Same min-start / half-hour rebuild / end-after-start logic as `syncReservationForm`, for group booking `b_*` fields. */
+      function syncBulkReservationForm() {
+        const bulkForm = document.getElementById("bulk-reserve-form");
+        if (!bulkForm) return;
+
+        const startDate = bulkForm.querySelector('input[name="b_start_date"]');
+        const startTime = bulkForm.querySelector('select[name="b_start_time_only"]');
+        const endDate = bulkForm.querySelector('input[name="b_end_date"]');
+        const endTime = bulkForm.querySelector('select[name="b_end_time_only"]');
+        const tzInput = bulkForm.querySelector(".bulk-user-timezone-input");
+
+        if (!startDate || !startTime || !endDate || !endTime) return;
+
+        if (tzInput) {
+          tzInput.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        }
+
+        const now = new Date();
+        const minStart = roundUpToNextHalfHour(now);
+
+        if (!startDate.value) {
+          startDate.value = formatDateLocal(minStart);
+        }
+
+        let startMinForDate = startDate.value === formatDateLocal(minStart) ? minStart : null;
+        buildHalfHourOptions(startTime, startTime.value, startMinForDate, startDate.value);
+
+        let startDateTime = getDateTimeFromFields(startDate, startTime);
+        if (startDateTime && startDateTime < minStart) {
+          startDate.value = formatDateLocal(minStart);
+          const snap = `${pad(minStart.getHours())}:${pad(minStart.getMinutes())}`;
+          buildHalfHourOptions(startTime, snap, minStart, startDate.value);
+          startDateTime = getDateTimeFromFields(startDate, startTime);
+        }
+
+        let minEnd = null;
+        if (startDateTime) {
+          minEnd = new Date(startDateTime);
+          minEnd.setMinutes(minEnd.getMinutes() + 30);
+        }
+
+        if (!endDate.value) {
+          endDate.value = minEnd ? formatDateLocal(minEnd) : startDate.value;
+        }
+
+        if (minEnd) {
+          const minEndDateOnly = formatDateLocal(minEnd);
+          if (endDate.value < minEndDateOnly) {
+            endDate.value = minEndDateOnly;
+          }
+        }
+
+        const existingEndValue = endTime.value;
+        const endMinForDate = minEnd && endDate.value === formatDateLocal(minEnd) ? minEnd : null;
+        buildHalfHourOptions(endTime, existingEndValue, endMinForDate, endDate.value);
+
+        const finalEndDateTime = getDateTimeFromFields(endDate, endTime);
+        if (startDateTime && finalEndDateTime && finalEndDateTime <= startDateTime) {
+          endTime.value = "";
+        }
+      }
+
+      function selectedVehicleTypeMatchesSlot(form) {
+        const supported = (form.dataset.supportedVehicleType || "").trim().toLowerCase();
+        const select = form.querySelector('select[name="vehicle_id"]');
+        if (!select || !select.value) return false;
+        const opt = select.selectedOptions[0];
+        if (!opt) return false;
+        const vtype = (opt.dataset.vehicleType || "").trim().toLowerCase();
+        if (!supported || !vtype) return false;
+        return vtype === supported;
+      }
+
       function isReservationBasicsComplete(form) {
         const vehicle = form.querySelector('select[name="vehicle_id"]');
         const startDate = form.querySelector('input[name="start_date"]');
@@ -555,7 +865,8 @@
           startDate && startDate.value &&
           startTime && startTime.value &&
           endDate && endDate.value &&
-          endTime && endTime.value
+          endTime && endTime.value &&
+          selectedVehicleTypeMatchesSlot(form)
         );
       }
 
@@ -580,8 +891,33 @@
 
       function refreshPaymentGate(form) {
         const continueBtn = form.querySelector(".js-continue-payment");
+        const note = form.querySelector(".js-payment-gate-note");
         if (!continueBtn) return;
-        continueBtn.disabled = !isReservationBasicsComplete(form);
+        const basicsOk = isReservationBasicsComplete(form);
+        continueBtn.disabled = !basicsOk;
+        if (!basicsOk) {
+          setPaymentExpanded(form, false);
+        }
+        if (note) {
+          const vehicle = form.querySelector('select[name="vehicle_id"]');
+          const timesOk =
+            vehicle &&
+            vehicle.value &&
+            form.querySelector('input[name="start_date"]')?.value &&
+            form.querySelector('select[name="start_time_only"]')?.value &&
+            form.querySelector('input[name="end_date"]')?.value &&
+            form.querySelector('select[name="end_time_only"]')?.value;
+          if (vehicle && vehicle.value && timesOk && !selectedVehicleTypeMatchesSlot(form)) {
+            const supported = (form.dataset.supportedVehicleType || "").trim().toUpperCase() || "this slot";
+            note.textContent =
+              "This slot is for " +
+              supported +
+              " only. Pick a matching vehicle from your garage, or choose another slot.";
+          } else {
+            note.textContent =
+              "Choose a vehicle that matches this slot’s supported type, set your times, then continue to payment.";
+          }
+        }
       }
 
       const retrySlotId = "{{ retry_slot_id or '' }}";
@@ -602,7 +938,7 @@
   setPaymentExpanded(form, false);
   refreshPaymentGate(form);
 
-  if (retrySlotId && form.dataset.slotId === retrySlotId) {
+  if (retrySlotId && form.dataset.slotId === retrySlotId && isReservationBasicsComplete(form)) {
     setPaymentExpanded(form, true);
     if (!hasScrolledToRetryForm) {
       form.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -619,6 +955,10 @@
   if (continueBtn) {
     continueBtn.addEventListener("click", () => {
       if (!isReservationBasicsComplete(form)) {
+        refreshPaymentGate(form);
+        return;
+      }
+      if (!selectedVehicleTypeMatchesSlot(form)) {
         refreshPaymentGate(form);
         return;
       }
@@ -650,6 +990,238 @@
     });
   }
 });
+
+      const bulkForm = document.getElementById("bulk-reserve-form");
+      if (bulkForm) {
+        const BULK_RETRY_MAP = {{ bulk_retry_map|default({})|tojson }};
+        const BULK_REOPEN_PAYMENT = {{ bulk_reopen_payment|default(false)|tojson }};
+        const BULK_RETRY_CARDHOLDER = {{ bulk_retry_cardholder|default('')|tojson }};
+
+        const bulkContinueBtn = bulkForm.querySelector(".js-bulk-continue-payment");
+        const bulkPaymentShell = bulkForm.querySelector(".js-bulk-payment-shell");
+        const bulkGateNote = bulkForm.querySelector(".js-bulk-payment-gate-note");
+        const bulkPayInputs = bulkForm.querySelectorAll(".js-bulk-pay-input");
+
+        function bulkVehicleSelectForCheckbox(cb) {
+          const row = cb.closest(".bulk-slot-row");
+          return row ? row.querySelector(".bulk-row-vehicle") : null;
+        }
+
+        function vehicleTypeFromSelect(sel) {
+          if (!sel || !sel.value) return "";
+          const opt = sel.selectedOptions[0];
+          return opt ? (opt.dataset.vehicleType || "").trim().toLowerCase() : "";
+        }
+
+        function bulkEachCheckedSlotHasValidVehicle() {
+          const checked = bulkForm.querySelectorAll(".bulk-slot-cb:checked");
+          for (const cb of checked) {
+            const sel = bulkVehicleSelectForCheckbox(cb);
+            const vt = vehicleTypeFromSelect(sel);
+            if (!vt) return false;
+            const need = (cb.dataset.supportedVehicleType || "").trim().toLowerCase();
+            if (need && vt !== need) return false;
+          }
+          return true;
+        }
+
+        function isBulkBookingBasicsComplete() {
+          const checked = bulkForm.querySelectorAll(".bulk-slot-cb:checked");
+          const sd = bulkForm.querySelector("#b_start_date");
+          const st = bulkForm.querySelector("#b_start_time_only");
+          const ed = bulkForm.querySelector("#b_end_date");
+          const et = bulkForm.querySelector("#b_end_time_only");
+          return Boolean(
+            checked.length >= 1 &&
+              sd &&
+              sd.value &&
+              st &&
+              st.value &&
+              ed &&
+              ed.value &&
+              et &&
+              et.value &&
+              bulkEachCheckedSlotHasValidVehicle()
+          );
+        }
+
+        function setBulkPaymentShellExpanded(expanded) {
+          if (!bulkPaymentShell) return;
+          if (expanded) {
+            bulkPaymentShell.classList.remove("is-collapsed");
+            bulkPaymentShell.setAttribute("aria-hidden", "false");
+            bulkPayInputs.forEach((el) => el.setAttribute("required", "required"));
+            if (bulkContinueBtn) bulkContinueBtn.style.display = "none";
+          } else {
+            bulkPaymentShell.classList.add("is-collapsed");
+            bulkPaymentShell.setAttribute("aria-hidden", "true");
+            bulkPayInputs.forEach((el) => {
+              el.removeAttribute("required");
+              el.value = "";
+            });
+            if (bulkContinueBtn) bulkContinueBtn.style.display = "";
+          }
+        }
+
+        function refreshBulkGate() {
+          const ok = isBulkBookingBasicsComplete();
+          if (bulkContinueBtn) bulkContinueBtn.disabled = !ok;
+          if (bulkGateNote) {
+            const nSel = bulkForm.querySelectorAll(".bulk-slot-cb:checked").length;
+            const sd = bulkForm.querySelector("#b_start_date");
+            const st = bulkForm.querySelector("#b_start_time_only");
+            const ed = bulkForm.querySelector("#b_end_date");
+            const et = bulkForm.querySelector("#b_end_time_only");
+            const timesOk = Boolean(
+              sd && sd.value && st && st.value && ed && ed.value && et && et.value
+            );
+            if (nSel < 1) {
+              bulkGateNote.textContent = "Select at least one slot to continue.";
+            } else if (!bulkEachCheckedSlotHasValidVehicle()) {
+              bulkGateNote.textContent =
+                "Each checked slot needs a vehicle whose type matches that slot (see labels).";
+            } else if (!timesOk) {
+              bulkGateNote.textContent = "Set start and end date and time for the group.";
+            } else {
+              bulkGateNote.textContent = "Ready — continue to enter demo payment.";
+            }
+          }
+        }
+
+        bulkForm.querySelectorAll(".bulk-slot-cb").forEach((cb) => {
+          cb.addEventListener("change", () => {
+            const sel = bulkVehicleSelectForCheckbox(cb);
+            if (sel) {
+              if (cb.checked) {
+                sel.disabled = false;
+              } else {
+                sel.disabled = true;
+                sel.value = "";
+              }
+            }
+            setBulkPaymentShellExpanded(false);
+            refreshBulkGate();
+          });
+        });
+
+        bulkForm.querySelectorAll(".bulk-row-vehicle").forEach((sel) => {
+          sel.addEventListener("change", () => {
+            setBulkPaymentShellExpanded(false);
+            refreshBulkGate();
+          });
+        });
+
+        bulkForm
+          .querySelectorAll(
+            'input[name="b_start_date"], select[name="b_start_time_only"], input[name="b_end_date"], select[name="b_end_time_only"]'
+          )
+          .forEach((el) => {
+            el.addEventListener("change", () => {
+              syncBulkReservationForm();
+              setBulkPaymentShellExpanded(false);
+              refreshBulkGate();
+            });
+            el.addEventListener("input", () => {
+              syncBulkReservationForm();
+              setBulkPaymentShellExpanded(false);
+              refreshBulkGate();
+            });
+          });
+
+        if (bulkContinueBtn) {
+          bulkContinueBtn.addEventListener("click", () => {
+            if (!isBulkBookingBasicsComplete()) {
+              refreshBulkGate();
+              return;
+            }
+            setBulkPaymentShellExpanded(true);
+            const firstPay = bulkForm.querySelector("#bulk_cardholder_name");
+            if (firstPay) window.setTimeout(() => firstPay.focus(), 50);
+          });
+        }
+
+        const bulkCard = bulkForm.querySelector("#bulk_card_number");
+        if (bulkCard) {
+          bulkCard.addEventListener("input", (e) => {
+            let digits = e.target.value.replace(/\D/g, "").slice(0, 16);
+            e.target.value = digits.replace(/(.{4})/g, "$1 ").trim();
+          });
+        }
+        const bulkExpiry = bulkForm.querySelector("#bulk_expiry");
+        if (bulkExpiry) {
+          bulkExpiry.addEventListener("input", (e) => {
+            let digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+            if (digits.length >= 3) {
+              e.target.value = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+            } else {
+              e.target.value = digits;
+            }
+          });
+        }
+        const bulkCvvEl = bulkForm.querySelector("#bulk_cvv");
+        if (bulkCvvEl) {
+          bulkCvvEl.addEventListener("input", (e) => {
+            e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4);
+          });
+        }
+
+        bulkForm.addEventListener("submit", (e) => {
+          if (bulkPaymentShell && bulkPaymentShell.classList.contains("is-collapsed")) {
+            e.preventDefault();
+            refreshBulkGate();
+            return;
+          }
+          const checked = bulkForm.querySelectorAll(".bulk-slot-cb:checked");
+          if (checked.length < 1) {
+            e.preventDefault();
+            alert("Select at least one slot for this booking.");
+            return;
+          }
+          for (const cb of checked) {
+            const sel = bulkVehicleSelectForCheckbox(cb);
+            const vt = vehicleTypeFromSelect(sel);
+            if (!vt) {
+              e.preventDefault();
+              alert("Choose a vehicle for every selected slot.");
+              return;
+            }
+            const need = (cb.dataset.supportedVehicleType || "").trim().toLowerCase();
+            if (need && vt !== need) {
+              e.preventDefault();
+              alert("Each vehicle must match the supported type shown for that slot.");
+              return;
+            }
+          }
+        });
+
+        if (BULK_RETRY_MAP && Object.keys(BULK_RETRY_MAP).length) {
+          Object.keys(BULK_RETRY_MAP).forEach((sid) => {
+            const vid = BULK_RETRY_MAP[sid];
+            const esc = String(sid).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+            const cb = bulkForm.querySelector('input.bulk-slot-cb[value="' + esc + '"]');
+            if (cb) {
+              cb.checked = true;
+              const sel = bulkVehicleSelectForCheckbox(cb);
+              if (sel) {
+                sel.disabled = false;
+                sel.value = String(vid);
+              }
+            }
+          });
+        }
+        syncBulkReservationForm();
+        refreshBulkGate();
+        if (BULK_REOPEN_PAYMENT && isBulkBookingBasicsComplete()) {
+          setBulkPaymentShellExpanded(true);
+          if (BULK_RETRY_CARDHOLDER) {
+            const ch = bulkForm.querySelector("#bulk_cardholder_name");
+            if (ch) ch.value = BULK_RETRY_CARDHOLDER;
+          }
+          window.setTimeout(() => {
+            bulkForm.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 100);
+        }
+      }
 
       const floatingFlashMessages = document.getElementById("floatingFlashMessages");
       if (floatingFlashMessages) {

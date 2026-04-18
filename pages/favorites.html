@@ -100,16 +100,16 @@
 
               <p class="lot-location">{{ lot.address }}</p>
 
-              <div class="lot-stats">
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Price</span>
-                  <span class="lot-stat-value">${{ lot.price_per_hour }}/hr</span>
+              <div class="inv-summary-strip inv-summary-strip--compact" role="group" aria-label="Quick facts for {{ lot.name }}">
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Price</p>
+                  <p class="inv-summary-value">${{ lot.price_per_hour }}/hr</p>
                 </div>
-                <div class="lot-stat">
-                  <span class="lot-stat-label">Available</span>
-                  <span class="lot-stat-value">
+                <div class="inv-summary-card">
+                  <p class="inv-summary-label">Available</p>
+                  <p class="inv-summary-value">
                     {{ lot.available_slots }} slot{% if lot.available_slots != 1 %}s{% endif %}
-                  </span>
+                  </p>
                 </div>
               </div>
 

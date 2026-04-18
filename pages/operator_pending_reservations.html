@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pending booking requests — SpotOn</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <style>
+      .pending-wrap {
+        width: 100%;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      .pending-table-wrap {
+        overflow-x: auto;
+        margin-top: 20px;
+        border: 1px solid #e5e5e5;
+        border-radius: 16px;
+        background: #fff;
+      }
+      .pending-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+      .pending-table th,
+      .pending-table td {
+        padding: 12px 14px;
+        text-align: left;
+        border-bottom: 1px solid #eee;
+        vertical-align: top;
+      }
+      .pending-table th {
+        font-weight: 600;
+        color: #333;
+        background: #fafafa;
+      }
+      .pending-table tr:last-child td {
+        border-bottom: none;
+      }
+      .pending-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .pending-actions form {
+        margin: 0;
+      }
+      .pending-empty {
+        margin-top: 16px;
+        padding: 20px;
+        border-radius: 16px;
+        background: #fafafa;
+        border: 1px dashed #ccc;
+        color: #555;
+      }
+      .pending-meta {
+        color: #666;
+        font-size: 0.88rem;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body class="auth-page operator-page">
+    <div class="auth-card auth-card--wide pending-wrap">
+      <div class="auth-header">
+        <a href="{{ url_for('home') }}" class="text-logo">Spot<span>On</span></a>
+        <h1>Pending booking requests</h1>
+        <p>{{ user_email }}</p>
+        <p>Role: {{ user_role|capitalize }}</p>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-messages">
+            {% for category, message in messages %}
+              <div class="flash-message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <div class="dash-toolbar">
+        <a href="{{ url_for('operator_dashboard') }}" class="btn btn-secondary">Back to operator home</a>
+        <a href="{{ url_for('operator_inventory') }}" class="btn btn-secondary">Inventory</a>
+        <a href="{{ url_for('logout') }}" class="btn btn-secondary">Logout</a>
+      </div>
+
+      <p class="dash-intro" style="margin-top: 16px">
+        Confirm a request to charge the driver and lock the slot. Decline if you cannot honor the booking.
+      </p>
+
+      {% if rows %}
+        <div class="pending-table-wrap">
+          <table class="pending-table">
+            <thead>
+              <tr>
+                <th>Driver</th>
+                <th>Lot &amp; slot</th>
+                <th>Window</th>
+                <th>Group</th>
+                <th>Est. total</th>
+                <th>Promo</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr>
+                  <td>
+                    {% if row.driver_name %}{{ row.driver_name }}{% else %}—{% endif %}
+                    <div class="pending-meta">{{ row.driver_email }}</div>
+                  </td>
+                  <td>
+                    <strong>{{ row.lot_name }}</strong>
+                    <div class="pending-meta">{{ row.lot_address }}</div>
+                    <div class="pending-meta">
+                      Slot {{ row.slot_label }} · {{ row.slot_type or "standard" }} · {{ row.supported_vehicle_type or "—" }}
+                    </div>
+                  </td>
+                  <td>
+                    {{ row.start_time.strftime("%b %d, %Y • %I:%M %p").replace(" 0", " ") }}<br />
+                    <span class="pending-meta">to</span><br />
+                    {{ row.end_time.strftime("%b %d, %Y • %I:%M %p").replace(" 0", " ") }}
+                  </td>
+                  <td>{% if row.bulk_peer_count > 1 %}Bulk ×{{ row.bulk_peer_count }}{% else %}—{% endif %}</td>
+                  <td>${{ "%.2f"|format(row.estimated_total) }}</td>
+                  <td>{{ row.promo_summary }}</td>
+                  <td>
+                    <div class="pending-actions">
+                      <form method="POST" action="{{ url_for('operator_approve_reservation', reservation_id=row.id) }}">
+                        <button type="submit" class="btn btn-primary">Approve</button>
+                      </form>
+                      <form method="POST" action="{{ url_for('operator_reject_reservation', reservation_id=row.id) }}">
+                        <button type="submit" class="btn btn-secondary">Decline</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="pending-empty">No pending requests right now.</div>
+      {% endif %}
+    </div>
+  </body>
+</html>

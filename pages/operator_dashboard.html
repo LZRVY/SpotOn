@@ -36,7 +36,8 @@
       </div>
 
       <div class="dash-toolbar">
-        <a href="{{ url_for('operator_inventory') }}" class="btn btn-primary">Open inventory</a>
+        <a href="{{ url_for('operator_pending_reservations') }}" class="btn btn-primary">Pending booking requests</a>
+        <a href="{{ url_for('operator_inventory') }}" class="btn btn-secondary">Open inventory</a>
         <a href="{{ url_for('operator_inventory') }}#lot-pricing-section" class="btn btn-secondary">Pricing &amp; overrides</a>
         <a href="{{ url_for('logout') }}" class="btn btn-secondary">Logout</a>
       </div>

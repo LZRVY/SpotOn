@@ -1,15 +1,32 @@
 from zoneinfo import ZoneInfo
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import (
+    Flask,
+    Response,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
+import psycopg2.errors
 import psycopg2.extras
+
+# Allow binding Python uuid.UUID to PostgreSQL uuid columns (avoids "can't adapt type 'UUID'").
+psycopg2.extras.register_uuid()
+
+from collections import defaultdict
 from functools import wraps
 import os
+import traceback
+import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 app = Flask(__name__, template_folder="pages")
-app.secret_key = os.getenv("SECRET_KEY", "dev-secret")
+app.secret_key = os.getenv("SECRET_KEY") or "dev-secret"
 app.permanent_session_lifetime = timedelta(minutes=30)
 
 AVAILABLE_SLOT_STATUS = "AVAILABLE"
@@ -25,12 +42,81 @@ SUPPORTED_PROMOS = {
     PACE_PROMO_CODE: PACE_PROMO_DISCOUNT_PERCENT,
 }
 
+CONFIRMED_RESERVATION_STATUS = "CONFIRMED"
+PENDING_APPROVAL_STATUS = "PENDING_APPROVAL"
+REJECTED_RESERVATION_STATUS = "REJECTED"
+# Slot-time overlaps treat pending requests like confirmed holds.
+BOOKING_OVERLAP_STATUS_SQL = "('CONFIRMED', 'PENDING_APPROVAL')"
+
 
 def build_booking_alias(booking_id):
     raw_value = "".join(ch for ch in str(booking_id or "").upper() if ch.isalnum())
     if len(raw_value) < 10:
         return ""
     return f"SP-{raw_value[:6]}{raw_value[-4:]}"
+
+
+def validate_demo_payment_fields(cardholder_name, card_number, expiry, cvv):
+    """
+    Validate the demo payment form. Returns (None, cleaned_16_digit_card) if OK,
+    or (error_message, None).
+
+    Checks run in an order that surfaces format issues and the specific wrong field
+    before the generic “use the demo card” hint.
+    """
+    if not (cardholder_name or "").strip():
+        return "Enter the cardholder name as it appears on the card.", None
+
+    cleaned_card = "".join(ch for ch in (card_number or "") if ch.isdigit())
+    if not cleaned_card:
+        return "Enter the full card number (16 digits).", None
+    if len(cleaned_card) != 16:
+        return (
+            "The card number must be exactly 16 digits. "
+            "For this demo, enter 8111 1111 1111 1111.",
+            None,
+        )
+
+    exp = (expiry or "").strip()
+    if len(exp) != 5 or exp[2] != "/":
+        return (
+            "Enter the expiry as MM/YY with a slash between month and year "
+            "(for example, 12/28).",
+            None,
+        )
+    try:
+        month_val = int(exp[0:2])
+        if month_val < 1 or month_val > 12:
+            return "Expiry month must be between 01 and 12.", None
+        int(exp[3:5])
+    except ValueError:
+        return (
+            "Enter a valid expiry in MM/YY form (for example, 12/28).",
+            None,
+        )
+
+    cleaned_cvv = "".join(ch for ch in (cvv or "") if ch.isdigit())
+    if not cleaned_cvv:
+        return "Enter the 3-digit security code (CVV) from the back of the card.", None
+    if len(cleaned_cvv) != 3:
+        return (
+            "CVV must be exactly 3 digits. For this demo checkout, use 007.",
+            None,
+        )
+    if cleaned_cvv != "007":
+        return (
+            "That security code is incorrect. For this demo, the CVV must be 007.",
+            None,
+        )
+
+    if cleaned_card != "8111111111111111":
+        return (
+            "That card number is not valid for this demo checkout. "
+            "Use the test number 8111 1111 1111 1111.",
+            None,
+        )
+
+    return None, cleaned_card
 
 
 def safe_internal_next(candidate):
@@ -70,13 +156,20 @@ def login_required(role=None):
 
 
 def get_db_connection():
-    database_url = os.getenv("DATABASE_URL")
+    """
+    Reads DATABASE_URL (e.g. from Render). For Supabase + Render, use the
+    **Session pooler** URI (host …pooler.supabase.com, port 5432): the direct
+    db.*.supabase.co host is often IPv6-only and fails on IPv4-only hosts.
+    """
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
 
     if database_url:
         if database_url.startswith("postgres://"):
             database_url = database_url.replace("postgres://", "postgresql://", 1)
-        # Supabase requires TLS; append sslmode if the URL does not already set it.
-        if "supabase.co" in database_url and "sslmode=" not in database_url:
+        # Supabase (direct and pooler) expects TLS if sslmode is omitted.
+        if "sslmode=" not in database_url and (
+            "supabase.co" in database_url or "pooler.supabase.com" in database_url
+        ):
             database_url += ("&" if "?" in database_url else "?") + "sslmode=require"
         return psycopg2.connect(database_url)
 
@@ -210,13 +303,140 @@ def ensure_db_integrity_constraints():
         conn.close()
 
 
+def ensure_reservation_approval_schema():
+    """
+    Idempotent: widen reservation status check, add optional promo_code column,
+    and replace confirmed-only exclusion with overlap for pending + confirmed.
+    """
+    conn = get_db_connection()
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            ALTER TABLE reservations
+            ADD COLUMN IF NOT EXISTS promo_code VARCHAR(64)
+            """
+        )
+    except psycopg2.Error as exc:
+        print("ensure_reservation_approval_schema promo column:", exc)
+
+    try:
+        cur.execute("ALTER TABLE reservations DROP CONSTRAINT IF EXISTS reservations_status_check")
+        cur.execute(
+            """
+            ALTER TABLE reservations
+            ADD CONSTRAINT reservations_status_check
+            CHECK (
+                status = ANY (
+                    ARRAY[
+                        'CONFIRMED',
+                        'CANCELLED',
+                        'EXPIRED',
+                        'PENDING_APPROVAL',
+                        'REJECTED'
+                    ]::text[]
+                )
+            )
+            """
+        )
+    except psycopg2.Error as exc:
+        print("ensure_reservation_approval_schema status check:", exc)
+
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'reservations_slot_booking_overlap'
+            """
+        )
+        if cur.fetchone():
+            return
+
+        cur.execute(
+            "ALTER TABLE reservations DROP CONSTRAINT IF EXISTS reservations_confirmed_no_overlap"
+        )
+        cur.execute(
+            "ALTER TABLE reservations DROP CONSTRAINT IF EXISTS reservations_no_overlap_confirmed"
+        )
+        cur.execute(
+            """
+            ALTER TABLE reservations
+            ADD CONSTRAINT reservations_slot_booking_overlap
+            EXCLUDE USING gist (
+                slot_id WITH =,
+                tstzrange(start_time, end_time, '[)') WITH &&
+            )
+            WHERE (status IN ('CONFIRMED', 'PENDING_APPROVAL'))
+            """
+        )
+    except psycopg2.Error as exc:
+        print("ensure_reservation_approval_schema overlap:", exc)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def ensure_bulk_reservation_schema():
+    """Optional bulk_group_id linking multiple reservation rows from one checkout."""
+    conn = get_db_connection()
+    conn.autocommit = True
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            ALTER TABLE reservations
+            ADD COLUMN IF NOT EXISTS bulk_group_id UUID
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_reservations_bulk_group_id
+            ON reservations (bulk_group_id)
+            WHERE bulk_group_id IS NOT NULL
+            """
+        )
+    except psycopg2.Error as exc:
+        print("ensure_bulk_reservation_schema:", exc)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def enrich_reservation_rows_bulk_metadata(rows):
+    """Adds bulk_peer_count and bulk_peer_slots_display for grouped UI."""
+    if not rows:
+        return
+    by_group = defaultdict(list)
+    for row in rows:
+        gid = row.get("bulk_group_id")
+        if gid:
+            by_group[gid].append(row)
+    for row in rows:
+        gid = row.get("bulk_group_id")
+        if gid and gid in by_group:
+            members = by_group[gid]
+            row["bulk_peer_count"] = len(members)
+            row["bulk_peer_slots_display"] = ", ".join(
+                sorted(
+                    (str(m.get("slot_label") or "").strip() or "—") for m in members
+                )
+            )
+        else:
+            row["bulk_peer_count"] = 1
+            row["bulk_peer_slots_display"] = ""
+
+
 @app.before_request
 def _ensure_db_integrity_once():
-    if request.endpoint == "static":
+    if request.endpoint in ("static", "health"):
         return
     if app.config.get("_db_integrity_constraints_ready"):
         return
     ensure_db_integrity_constraints()
+    ensure_reservation_approval_schema()
+    ensure_bulk_reservation_schema()
     app.config["_db_integrity_constraints_ready"] = True
 
 
@@ -268,6 +488,44 @@ def load_pricing_overrides_for_lots(cur, lot_ids):
     for row in cur.fetchall():
         lot_overrides = by_lot.setdefault(row["lot_id"], {})
         lot_overrides[(row["slot_type"], row["vehicle_type"])] = float(row["price_per_hour"])
+    return by_lot
+
+
+def load_pricing_override_rows_with_meta(cur, lot_ids):
+    """Rows for operator inventory: price overrides with last-updated timestamps."""
+    if not lot_ids:
+        return {}
+
+    ensure_pricing_overrides_table(cur)
+    cur.execute(
+        """
+        SELECT lot_id, slot_type, vehicle_type, price_per_hour, updated_at
+        FROM pricing_overrides
+        WHERE lot_id = ANY(%s::uuid[])
+        ORDER BY lot_id, updated_at DESC NULLS LAST, slot_type, vehicle_type
+        """,
+        (list(lot_ids),),
+    )
+    by_lot = {}
+    for row in cur.fetchall():
+        ts = row.get("updated_at")
+        display = "—"
+        if ts is not None:
+            try:
+                if getattr(ts, "tzinfo", None) is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                display = ts.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            except (TypeError, ValueError, OSError):
+                display = str(ts)[:19]
+
+        by_lot.setdefault(row["lot_id"], []).append(
+            {
+                "slot_type": row["slot_type"],
+                "vehicle_type": row["vehicle_type"],
+                "price_per_hour": float(row["price_per_hour"]),
+                "updated_at_display": display,
+            }
+        )
     return by_lot
 
 
@@ -461,6 +719,7 @@ def dashboard():
     cur.execute("""
         SELECT
             r.id,
+            r.bulk_group_id,
             r.start_time,
             r.end_time,
             r.status,
@@ -481,9 +740,11 @@ def dashboard():
     """, (session.get("user_id"),))
     active_reservations = cur.fetchall()
 
-    cur.execute("""
+    cur.execute(
+        """
         SELECT
             r.id,
+            r.bulk_group_id,
             r.start_time,
             r.end_time,
             r.status,
@@ -498,13 +759,48 @@ def dashboard():
         JOIN parking_slots ps ON r.slot_id = ps.id
         JOIN parking_lots pl ON ps.lot_id = pl.id
         WHERE r.user_id = %s
-          AND (
-              r.status <> 'CONFIRMED'
-              OR r.end_time <= now()
+          AND r.status = %s
+          AND r.end_time > now()
+        ORDER BY r.start_time ASC
+        """,
+        (session.get("user_id"), PENDING_APPROVAL_STATUS),
+    )
+    pending_approvals = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT
+            r.id,
+            r.bulk_group_id,
+            r.start_time,
+            r.end_time,
+            r.status,
+            pl.name AS lot_name,
+            pl.address AS lot_address,
+            pl.id AS lot_id,
+            pl.price_per_hour AS price_per_hour,
+            ps.slot_type,
+            ps.supported_vehicle_type,
+            ps.label AS slot_label
+        FROM reservations r
+        JOIN parking_slots ps ON r.slot_id = ps.id
+        JOIN parking_lots pl ON ps.lot_id = pl.id
+        WHERE r.user_id = %s
+          AND NOT (
+              r.status = 'CONFIRMED' AND r.end_time > now()
+          )
+          AND NOT (
+              r.status = %s AND r.end_time > now()
           )
         ORDER BY r.start_time DESC
-    """, (session.get("user_id"),))
+        """,
+        (session.get("user_id"), PENDING_APPROVAL_STATUS),
+    )
     reservation_history = cur.fetchall()
+
+    enrich_reservation_rows_bulk_metadata(active_reservations)
+    enrich_reservation_rows_bulk_metadata(pending_approvals)
+    enrich_reservation_rows_bulk_metadata(reservation_history)
 
     cur.execute("""
         SELECT
@@ -530,7 +826,7 @@ def dashboard():
         list(
             {
                 reservation["lot_id"]
-                for reservation in (active_reservations + reservation_history)
+                for reservation in (active_reservations + reservation_history + pending_approvals)
                 if reservation.get("lot_id")
             }
         )
@@ -555,6 +851,10 @@ def dashboard():
     def format_status(reservation):
         if reservation["status"] == "CANCELLED":
             return "Cancelled"
+        if reservation["status"] == REJECTED_RESERVATION_STATUS:
+            return "Declined"
+        if reservation["status"] == PENDING_APPROVAL_STATUS:
+            return "Awaiting approval"
         if reservation["status"] == "CONFIRMED" and reservation["end_time"] and reservation["end_time"] <= datetime.now(timezone.utc):
             return "Completed"
         if reservation["status"] == "CONFIRMED":
@@ -597,6 +897,13 @@ def dashboard():
         add_edit_fields(reservation)
         add_cost_fields(reservation)
 
+    for reservation in pending_approvals:
+        reservation["booking_alias"] = build_booking_alias(reservation.get("id"))
+        reservation["formatted_start"] = format_dt(reservation["start_time"])
+        reservation["formatted_end"] = format_dt(reservation["end_time"])
+        reservation["formatted_status"] = format_status(reservation)
+        add_cost_fields(reservation)
+
     for reservation in reservation_history:
         reservation["booking_alias"] = build_booking_alias(reservation.get("id"))
         reservation["formatted_start"] = format_dt(reservation["start_time"])
@@ -635,6 +942,7 @@ def dashboard():
         user_email=session.get("user_email"),
         user_role=session.get("user_role"),
         active_reservations=active_reservations,
+        pending_approvals=pending_approvals,
         reservation_history=reservation_history,
         transaction_history=transaction_history,
         time_options=time_options,
@@ -810,7 +1118,7 @@ def extend_reservation(reservation_id):
             FROM reservations r
             WHERE r.slot_id = %s
               AND r.id <> %s
-              AND r.status = 'CONFIRMED'
+              AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
               AND tstzrange(r.start_time, r.end_time, '[)') &&
                   tstzrange(%s, %s, '[)')
             LIMIT 1
@@ -926,7 +1234,7 @@ def modify_reservation(reservation_id):
             FROM reservations r
             WHERE r.slot_id = %s
               AND r.id <> %s
-              AND r.status = 'CONFIRMED'
+              AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
               AND tstzrange(r.start_time, r.end_time, '[)') &&
                   tstzrange(%s, %s, '[)')
             LIMIT 1
@@ -1088,7 +1396,7 @@ def operator_inventory():
                       SELECT 1
                       FROM reservations r
                       WHERE r.slot_id = ps.id
-                        AND r.status = 'CONFIRMED'
+                        AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
                         AND now() >= r.start_time
                         AND now() < r.end_time
                   )
@@ -1103,14 +1411,22 @@ def operator_inventory():
     cur.execute(
         """
         SELECT
-            id,
-            lot_id,
-            label,
-            slot_type,
-            status,
-            is_active
-        FROM parking_slots
-        ORDER BY lot_id, label
+            ps.id,
+            ps.lot_id,
+            ps.label,
+            ps.slot_type,
+            ps.status,
+            ps.is_active,
+            EXISTS (
+                SELECT 1
+                FROM reservations r
+                WHERE r.slot_id = ps.id
+                  AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
+                  AND now() >= r.start_time
+                  AND now() < r.end_time
+            ) AS occupied_now
+        FROM parking_slots ps
+        ORDER BY ps.lot_id, ps.label
         """
     )
     slots = cur.fetchall()
@@ -1122,24 +1438,23 @@ def operator_inventory():
     for lot in lots:
         lot["slots"] = slots_by_lot.get(lot["id"], [])
 
-    pricing_overrides_by_lot = load_pricing_overrides_for_lots(
+    inventory_summary = {
+        "lot_count": len(lots),
+        "slot_count": len(slots),
+        "available_now_total": sum(int(lot["available_now"] or 0) for lot in lots),
+        "inactive_slot_count": sum(1 for s in slots if not s.get("is_active")),
+        "oos_slot_count": sum(
+            1 for s in slots if (s.get("status") or "") == OUT_OF_SERVICE_SLOT_STATUS
+        ),
+        "occupied_slot_count": sum(1 for s in slots if s.get("occupied_now")),
+    }
+
+    override_rows_by_lot = load_pricing_override_rows_with_meta(
         cur,
-        [lot["id"] for lot in lots]
+        [lot["id"] for lot in lots],
     )
     for lot in lots:
-        override_rows = []
-        for (slot_type, vehicle_type), price in sorted(
-            pricing_overrides_by_lot.get(lot["id"], {}).items(),
-            key=lambda item: (item[0][0], item[0][1])
-        ):
-            override_rows.append(
-                {
-                    "slot_type": slot_type,
-                    "vehicle_type": vehicle_type,
-                    "price_per_hour": price,
-                }
-            )
-        lot["pricing_overrides"] = override_rows
+        lot["pricing_overrides"] = override_rows_by_lot.get(lot["id"], [])
 
     cur.close()
     conn.close()
@@ -1148,8 +1463,257 @@ def operator_inventory():
         "operator_inventory.html",
         user_email=session.get("user_email"),
         user_role=session.get("user_role"),
-        lots=lots
+        lots=lots,
+        inventory_summary=inventory_summary,
     )
+
+
+@app.route("/operator/inventory/export.csv")
+@login_required(role="operator")
+def operator_inventory_export_csv():
+    import csv
+    from io import StringIO
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT
+            pl.name AS lot_name,
+            pl.address AS lot_address,
+            ps.label AS slot_label,
+            ps.slot_type,
+            ps.supported_vehicle_type,
+            ps.status AS operational_status,
+            ps.is_active AS listed_active,
+            EXISTS (
+                SELECT 1
+                FROM reservations r
+                WHERE r.slot_id = ps.id
+                  AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
+                  AND now() >= r.start_time
+                  AND now() < r.end_time
+            ) AS occupied_now
+        FROM parking_slots ps
+        JOIN parking_lots pl ON pl.id = ps.lot_id
+        ORDER BY pl.name, ps.label
+        """
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    buf = StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "lot_name",
+            "lot_address",
+            "slot_label",
+            "slot_type",
+            "supported_vehicle_type",
+            "operational_status",
+            "listed_active",
+            "occupied_now",
+        ]
+    )
+    for row in rows:
+        writer.writerow(
+            [
+                row["lot_name"],
+                row["lot_address"],
+                row["slot_label"],
+                row["slot_type"],
+                row["supported_vehicle_type"],
+                row["operational_status"],
+                "yes" if row["listed_active"] else "no",
+                "yes" if row["occupied_now"] else "no",
+            ]
+        )
+
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=spoton-slot-inventory.csv"
+        },
+    )
+
+
+@app.route("/operator/reservations/pending")
+@login_required(role="operator")
+def operator_pending_reservations():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT
+            r.id,
+            r.bulk_group_id,
+            r.start_time,
+            r.end_time,
+            r.promo_code,
+            u.email AS driver_email,
+            u.full_name AS driver_name,
+            pl.name AS lot_name,
+            pl.address AS lot_address,
+            pl.id AS lot_id,
+            pl.price_per_hour,
+            ps.label AS slot_label,
+            ps.slot_type,
+            ps.supported_vehicle_type
+        FROM reservations r
+        JOIN users u ON u.id = r.user_id
+        JOIN parking_slots ps ON ps.id = r.slot_id
+        JOIN parking_lots pl ON pl.id = ps.lot_id
+        WHERE r.status = %s
+          AND r.end_time > now()
+        ORDER BY r.start_time ASC
+        """,
+        (PENDING_APPROVAL_STATUS,),
+    )
+    rows = cur.fetchall()
+    enrich_reservation_rows_bulk_metadata(rows)
+    lot_ids = list({r["lot_id"] for r in rows if r.get("lot_id")})
+    pricing_overrides_by_lot = load_pricing_overrides_for_lots(cur, lot_ids)
+    for r in rows:
+        eff = resolve_effective_price(
+            r["price_per_hour"],
+            pricing_overrides_by_lot.get(r["lot_id"], {}),
+            r.get("slot_type"),
+            r.get("supported_vehicle_type"),
+        )
+        hours = (r["end_time"] - r["start_time"]).total_seconds() / 3600
+        subtotal = round(float(eff) * hours, 2)
+        promo_result = apply_promo_discount(subtotal, r.get("promo_code") or "")
+        r["estimated_total"] = promo_result["final_total"]
+        r["promo_summary"] = (
+            f"{promo_result['applied_code']} (-${promo_result['discount_amount']:.2f})"
+            if promo_result["is_applied"]
+            else "—"
+        )
+    cur.close()
+    conn.close()
+    return render_template(
+        "operator_pending_reservations.html",
+        user_email=session.get("user_email"),
+        user_role=session.get("user_role"),
+        rows=rows,
+    )
+
+
+@app.route("/operator/reservations/<reservation_id>/approve", methods=["POST"])
+@login_required(role="operator")
+def operator_approve_reservation(reservation_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT
+                r.id,
+                r.user_id,
+                r.promo_code,
+                r.start_time,
+                r.end_time,
+                r.status,
+                pl.price_per_hour,
+                pl.id AS lot_id,
+                ps.slot_type,
+                ps.supported_vehicle_type
+            FROM reservations r
+            JOIN parking_slots ps ON ps.id = r.slot_id
+            JOIN parking_lots pl ON pl.id = ps.lot_id
+            WHERE r.id = %s
+            """,
+            (reservation_id,),
+        )
+        row = cur.fetchone()
+        if not row or row["status"] != PENDING_APPROVAL_STATUS:
+            flash("That request is not pending anymore.", "error")
+            return redirect(url_for("operator_pending_reservations"))
+
+        lot_overrides = load_pricing_overrides_for_lots(cur, [row["lot_id"]])
+        eff = resolve_effective_price(
+            row["price_per_hour"],
+            lot_overrides.get(row["lot_id"], {}),
+            row["slot_type"],
+            row["supported_vehicle_type"],
+        )
+        hours = (row["end_time"] - row["start_time"]).total_seconds() / 3600
+        subtotal = round(float(eff) * hours, 2)
+        promo_result = apply_promo_discount(subtotal, row.get("promo_code") or "")
+        total_cost = promo_result["final_total"]
+
+        cur.execute(
+            """
+            UPDATE reservations
+            SET status = %s
+            WHERE id = %s AND status = %s
+            """,
+            (CONFIRMED_RESERVATION_STATUS, reservation_id, PENDING_APPROVAL_STATUS),
+        )
+        if cur.rowcount == 0:
+            conn.rollback()
+            flash("Could not confirm (it may have been updated already).", "error")
+            return redirect(url_for("operator_pending_reservations"))
+
+        record_transaction(
+            cur,
+            reservation_id,
+            row["user_id"],
+            "CREATE_RESERVATION",
+            total_cost,
+            "SUCCESS",
+        )
+        conn.commit()
+        flash("Reservation confirmed for the driver.", "success")
+        return redirect(url_for("operator_pending_reservations"))
+
+    except psycopg2.errors.ExclusionViolation:
+        conn.rollback()
+        flash(
+            "Another booking now occupies that window. Decline this request or ask the driver to pick new times.",
+            "error",
+        )
+        return redirect(url_for("operator_pending_reservations"))
+    except psycopg2.Error as e:
+        conn.rollback()
+        print("Database error in operator_approve_reservation:", e)
+        flash("Could not approve right now.", "error")
+        return redirect(url_for("operator_pending_reservations"))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/operator/reservations/<reservation_id>/reject", methods=["POST"])
+@login_required(role="operator")
+def operator_reject_reservation(reservation_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute(
+            """
+            UPDATE reservations
+            SET status = %s
+            WHERE id = %s AND status = %s
+            """,
+            (REJECTED_RESERVATION_STATUS, reservation_id, PENDING_APPROVAL_STATUS),
+        )
+        if cur.rowcount == 0:
+            flash("Nothing to decline (already handled).", "error")
+        else:
+            flash("Booking request declined.", "success")
+        conn.commit()
+    except psycopg2.Error as e:
+        conn.rollback()
+        print("Database error in operator_reject_reservation:", e)
+        flash("Could not decline right now.", "error")
+    finally:
+        cur.close()
+        conn.close()
+    return redirect(url_for("operator_pending_reservations"))
 
 
 # --- Add Slot Route for Operator ---
@@ -1295,12 +1859,62 @@ def update_lot_price_override(lot_id):
             (lot_id, slot_type, vehicle_type, parsed_price)
         )
         conn.commit()
-        flash("Pricing override saved.", "success")
+        flash(
+            f"Saved pricing override ${float(parsed_price):.2f}/hr "
+            f'(slot type "{slot_type}", vehicle "{vehicle_type}").',
+            "success",
+        )
         return redirect(url_for("operator_inventory"))
     except psycopg2.Error as e:
         conn.rollback()
         print("Database error in update_lot_price_override:", e)
         flash("Could not save pricing override right now.", "error")
+        return redirect(url_for("operator_inventory"))
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/operator/lots/<lot_id>/remove-price-override", methods=["POST"])
+@login_required(role="operator")
+def remove_lot_price_override(lot_id):
+    slot_type = normalize_override_key(request.form.get("slot_type"))
+    vehicle_type = normalize_override_key(request.form.get("vehicle_type"))
+
+    if vehicle_type != "any" and vehicle_type not in ALLOWED_VEHICLE_TYPES:
+        flash("Invalid vehicle type for override removal.", "error")
+        return redirect(url_for("operator_inventory"))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        ensure_pricing_overrides_table(cur)
+        cur.execute(
+            """
+            DELETE FROM pricing_overrides
+            WHERE lot_id = %s
+              AND slot_type = %s
+              AND vehicle_type = %s
+            RETURNING lot_id
+            """,
+            (lot_id, slot_type, vehicle_type),
+        )
+        deleted = cur.fetchone()
+        if not deleted:
+            flash("No matching pricing override was found.", "error")
+            conn.rollback()
+            return redirect(url_for("operator_inventory"))
+        conn.commit()
+        flash(
+            f"Removed override ({slot_type or 'any'} / {vehicle_type or 'any'}). "
+            "Bookings now use the next matching rule or the lot base rate.",
+            "success",
+        )
+        return redirect(url_for("operator_inventory"))
+    except psycopg2.Error as e:
+        conn.rollback()
+        print("Database error in remove_lot_price_override:", e)
+        flash("Could not remove pricing override right now.", "error")
         return redirect(url_for("operator_inventory"))
     finally:
         cur.close()
@@ -1458,22 +2072,20 @@ def update_slot_details(slot_id):
         cur.close()
         conn.close()
 
-@app.route("/search")
-def search():
-    location = request.args.get("location", "").strip()
 
-    start_date = request.args.get("start_date", "").strip()
-    start_time_only = request.args.get("start_time_only", "").strip()
-    end_date = request.args.get("end_date", "").strip()
-    end_time_only = request.args.get("end_time_only", "").strip()
-
-    parking_type = request.args.get("parking_type", "").strip()
-    slot_type = request.args.get("slot_type", "").strip()
-    sort_by = request.args.get("sort_by", "").strip()
-    vehicle_type = request.args.get("vehicle_type", "").strip().lower()
-
-    quick_day = request.args.get("quick_day", "today").strip().lower()
-    quick_duration = request.args.get("quick_duration", "60").strip()
+def parse_search_request_args(req):
+    """Shared GET args for /search and /compare (card vs table view)."""
+    location = req.args.get("location", "").strip()
+    start_date = req.args.get("start_date", "").strip()
+    start_time_only = req.args.get("start_time_only", "").strip()
+    end_date = req.args.get("end_date", "").strip()
+    end_time_only = req.args.get("end_time_only", "").strip()
+    parking_type = req.args.get("parking_type", "").strip()
+    slot_type = req.args.get("slot_type", "").strip()
+    sort_by = req.args.get("sort_by", "").strip()
+    vehicle_type = req.args.get("vehicle_type", "").strip().lower()
+    quick_day = req.args.get("quick_day", "today").strip().lower()
+    quick_duration = req.args.get("quick_duration", "60").strip()
 
     start_time_str = f"{start_date}T{start_time_only}" if start_date and start_time_only else ""
     end_time_str = f"{end_date}T{end_time_only}" if end_date and end_time_only else ""
@@ -1485,7 +2097,6 @@ def search():
         try:
             selected_start = datetime.fromisoformat(start_time_str)
             selected_end = datetime.fromisoformat(end_time_str)
-
             if selected_end <= selected_start:
                 flash("End time must be after start time.", "error")
                 selected_start = None
@@ -1499,16 +2110,49 @@ def search():
             start_time_str = ""
             end_time_str = ""
 
-    order_clause = "pl.created_at ASC"
-    if sort_by == "price_asc":
-        order_clause = "pl.price_per_hour ASC NULLS LAST"
-    elif sort_by == "price_desc":
-        order_clause = "pl.price_per_hour DESC NULLS LAST"
-    elif sort_by == "available_desc":
-        order_clause = "available_slots DESC, pl.created_at ASC"
+    return {
+        "location": location,
+        "start_date": start_date,
+        "start_time_only": start_time_only,
+        "end_date": end_date,
+        "end_time_only": end_time_only,
+        "parking_type": parking_type,
+        "slot_type": slot_type,
+        "sort_by": sort_by,
+        "vehicle_type": vehicle_type,
+        "quick_day": quick_day,
+        "quick_duration": quick_duration,
+        "selected_start": selected_start,
+        "selected_end": selected_end,
+        "start_time_str": start_time_str,
+        "end_time_str": end_time_str,
+    }
 
-    conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+def _search_sql_order_clause(sort_by):
+    if sort_by == "price_asc":
+        return "pl.price_per_hour ASC NULLS LAST"
+    if sort_by == "price_desc":
+        return "pl.price_per_hour DESC NULLS LAST"
+    if sort_by == "available_desc":
+        return "available_slots DESC, pl.created_at ASC"
+    return "pl.created_at ASC"
+
+
+def _fetch_enriched_parking_lots(cur, p, user_id):
+    """
+    Same lot list as /search: availability respects optional window and filters;
+    price_per_hour uses overrides for the requested slot_type / vehicle_type keys.
+    """
+    selected_start = p["selected_start"]
+    selected_end = p["selected_end"]
+    location = p["location"]
+    parking_type = p["parking_type"]
+    slot_type = p["slot_type"]
+    vehicle_type = p["vehicle_type"]
+    sort_by = p["sort_by"]
+
+    order_clause = _search_sql_order_clause(sort_by)
 
     if selected_start and selected_end:
         query = f"""
@@ -1527,7 +2171,7 @@ def search():
                         SELECT 1
                         FROM reservations r
                         WHERE r.slot_id = ps.id
-                          AND r.status = 'CONFIRMED'
+                          AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
                           AND tstzrange(r.start_time, r.end_time, '[)') &&
                               tstzrange(%s, %s, '[)')
                     )
@@ -1552,7 +2196,7 @@ def search():
                     SELECT 1
                     FROM reservations r
                     WHERE r.slot_id = ps.id
-                      AND r.status = 'CONFIRMED'
+                      AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
                       AND tstzrange(r.start_time, r.end_time, '[)') &&
                           tstzrange(%s, %s, '[)')
                 )
@@ -1568,7 +2212,7 @@ def search():
                 vehicle_type,
                 selected_start,
                 selected_end,
-                session.get("user_id"),
+                user_id,
                 location,
                 f"%{location}%",
                 f"%{location}%",
@@ -1622,7 +2266,7 @@ def search():
                 slot_type,
                 vehicle_type,
                 vehicle_type,
-                session.get("user_id"),
+                user_id,
                 location,
                 f"%{location}%",
                 f"%{location}%",
@@ -1640,57 +2284,141 @@ def search():
         cur,
         [lot["id"] for lot in lots]
     )
-    cur.close()
-    conn.close()
 
     parking_lots = []
     for lot in lots:
-        parking_lots.append({
-            "id": str(lot["id"]),
-            "name": lot["name"],
-            "location": lot["address"] if lot["address"] else "Address not available",
-            "price_per_hour": resolve_effective_price(
-                lot["price_per_hour"],
-                pricing_overrides_by_lot.get(lot["id"], {}),
-                slot_type,
-                vehicle_type
-            ),
-            "available_slots": lot["available_slots"] or 0,
-            "type": lot["parking_type"] if lot["parking_type"] else "Standard Parking",
-            "is_favorite": lot["is_favorite"],
-        })
+        parking_lots.append(
+            {
+                "id": str(lot["id"]),
+                "name": lot["name"],
+                "location": lot["address"] if lot["address"] else "Address not available",
+                "price_per_hour": resolve_effective_price(
+                    lot["price_per_hour"],
+                    pricing_overrides_by_lot.get(lot["id"], {}),
+                    slot_type,
+                    vehicle_type,
+                ),
+                "available_slots": lot["available_slots"] or 0,
+                "type": lot["parking_type"] if lot["parking_type"] else "Standard Parking",
+                "is_favorite": lot["is_favorite"],
+            }
+        )
 
     if sort_by == "price_asc":
         parking_lots.sort(key=lambda lot: lot["price_per_hour"])
     elif sort_by == "price_desc":
         parking_lots.sort(key=lambda lot: lot["price_per_hour"], reverse=True)
 
+    return parking_lots
+
+
+def _search_time_options():
     time_options = []
     base_time = datetime.strptime("00:00", "%H:%M")
     for i in range(48):
         t = (base_time + timedelta(minutes=30 * i)).strftime("%H:%M")
         label = datetime.strptime(t, "%H:%M").strftime("%I:%M %p").lstrip("0")
         time_options.append({"value": t, "label": label})
+    return time_options
+
+
+@app.route("/search")
+def search():
+    p = parse_search_request_args(request)
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    parking_lots = _fetch_enriched_parking_lots(cur, p, session.get("user_id"))
+    cur.close()
+    conn.close()
+
+    time_options = _search_time_options()
 
     return render_template(
         "search.html",
         user_email=session.get("user_email"),
         user_role=session.get("user_role"),
         parking_lots=parking_lots,
-        location=location,
-        start_date=start_date,
-        start_time_only=start_time_only,
-        end_date=end_date,
-        end_time_only=end_time_only,
-        combined_start_time=start_time_str,
-        combined_end_time=end_time_str,
-        parking_type=parking_type,
-        slot_type=slot_type,
-        vehicle_type=vehicle_type,
-        sort_by=sort_by,
-        quick_day=quick_day,
-        quick_duration=quick_duration,
+        location=p["location"],
+        start_date=p["start_date"],
+        start_time_only=p["start_time_only"],
+        end_date=p["end_date"],
+        end_time_only=p["end_time_only"],
+        combined_start_time=p["start_time_str"],
+        combined_end_time=p["end_time_str"],
+        parking_type=p["parking_type"],
+        slot_type=p["slot_type"],
+        vehicle_type=p["vehicle_type"],
+        sort_by=p["sort_by"],
+        quick_day=p["quick_day"],
+        quick_duration=p["quick_duration"],
         time_options=time_options,
+    )
+
+
+@app.route("/compare")
+def price_compare():
+    """Table view of the same results as /search for side-by-side price comparison."""
+    p = parse_search_request_args(request)
+    fetch_p = dict(p)
+    if fetch_p["sort_by"] not in ("price_asc", "price_desc", "available_desc"):
+        fetch_p["sort_by"] = "price_asc"
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    parking_lots = _fetch_enriched_parking_lots(cur, fetch_p, session.get("user_id"))
+    cur.close()
+    conn.close()
+
+    hours = None
+    if p["selected_start"] and p["selected_end"]:
+        hours = (p["selected_end"] - p["selected_start"]).total_seconds() / 3600.0
+
+    min_rate = None
+    min_total = None
+    if parking_lots:
+        min_rate = min(lot["price_per_hour"] for lot in parking_lots)
+        for lot in parking_lots:
+            lot["estimated_total"] = (
+                round(lot["price_per_hour"] * hours, 2) if hours is not None else None
+            )
+        totals = [lot["estimated_total"] for lot in parking_lots if lot["estimated_total"] is not None]
+        if totals:
+            min_total = min(totals)
+
+    for lot in parking_lots:
+        lot["is_lowest_hourly_rate"] = (
+            min_rate is not None and abs(lot["price_per_hour"] - min_rate) < 0.005
+        )
+        et = lot.get("estimated_total")
+        lot["is_lowest_estimated_total"] = (
+            et is not None
+            and min_total is not None
+            and abs(et - min_total) < 0.005
+        )
+
+    time_options = _search_time_options()
+
+    return render_template(
+        "price_compare.html",
+        user_email=session.get("user_email"),
+        user_role=session.get("user_role"),
+        parking_lots=parking_lots,
+        location=p["location"],
+        start_date=p["start_date"],
+        start_time_only=p["start_time_only"],
+        end_date=p["end_date"],
+        end_time_only=p["end_time_only"],
+        combined_start_time=p["start_time_str"],
+        combined_end_time=p["end_time_str"],
+        parking_type=p["parking_type"],
+        slot_type=p["slot_type"],
+        vehicle_type=p["vehicle_type"],
+        sort_by=fetch_p["sort_by"],
+        quick_day=p["quick_day"],
+        quick_duration=p["quick_duration"],
+        time_options=time_options,
+        has_time_window=bool(hours),
+        compare_hours=round(hours, 4) if hours is not None else None,
     )
 
 
@@ -1778,18 +2506,18 @@ def lot_details(lot_id):
                 ps.status,
                 NOT EXISTS (
                     SELECT 1
-                    FROM reservations r
-                    WHERE r.slot_id = ps.id
-                      AND r.status = 'CONFIRMED'
-                      AND tstzrange(r.start_time, r.end_time, '[)') &&
-                          tstzrange(%s, %s, '[)')
+                        FROM reservations r
+                        WHERE r.slot_id = ps.id
+                          AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
+                          AND tstzrange(r.start_time, r.end_time, '[)') &&
+                              tstzrange(%s, %s, '[)')
                 ) AS is_available_now,
                 EXISTS (
                     SELECT 1
                     FROM reservations r
                     WHERE r.slot_id = ps.id
                       AND r.user_id = %s
-                      AND r.status = 'CONFIRMED'
+                      AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
                       AND tstzrange(r.start_time, r.end_time, '[)') &&
                           tstzrange(%s, %s, '[)')
                 ) AS reserved_by_current_user
@@ -1833,6 +2561,26 @@ def lot_details(lot_id):
     cur.close()
     conn.close()
 
+    bulk_eligible_count = sum(
+        1
+        for s in slots
+        if s.get("is_active")
+        and s.get("status") == AVAILABLE_SLOT_STATUS
+        and s.get("is_available_now")
+        and not s.get("reserved_by_current_user")
+    )
+
+    bulk_retry_map = {}
+    bulk_reopen_payment = False
+    bulk_retry_cardholder = ""
+    br = session.get("bulk_reservation_payment_retry")
+    if br and str(br.get("lot_id")) == str(lot_id):
+        sv = br.get("slot_vehicles") or {}
+        bulk_retry_map = {str(k): str(v) for k, v in sv.items() if v}
+        bulk_reopen_payment = bool(bulk_retry_map)
+        bulk_retry_cardholder = (br.get("cardholder_name") or "").strip()
+        session.pop("bulk_reservation_payment_retry", None)
+
     time_options = []
     base_time = datetime.strptime("00:00", "%H:%M")
     for i in range(48):
@@ -1855,6 +2603,11 @@ def lot_details(lot_id):
         retry_slot_id=retry_slot_id,
         retry_vehicle_id=retry_vehicle_id,
         retry_promo_code=retry_promo_code,
+        show_bulk_panel=bulk_eligible_count >= 1 and len(vehicles) > 0,
+        bulk_eligible_count=bulk_eligible_count,
+        bulk_retry_map=bulk_retry_map,
+        bulk_reopen_payment=bulk_reopen_payment,
+        bulk_retry_cardholder=bulk_retry_cardholder,
     )
 
 
@@ -1901,34 +2654,6 @@ def reserve_slot(slot_id):
         flash("Please select a vehicle and provide reservation start and end times.", "error")
         return back_to_lot()
 
-    cleaned_card_number = "".join(ch for ch in card_number if ch.isdigit())
-    cleaned_cvv = "".join(ch for ch in cvv if ch.isdigit())
-
-    if not cardholder_name or not cleaned_card_number or not expiry or not cleaned_cvv:
-        flash("Please complete the payment details before reserving the slot.", "error")
-        return back_to_lot()
-
-    if cleaned_card_number != "8111111111111111":
-        flash("For demo payment, use card number 8111 1111 1111 1111.", "error")
-        return back_to_lot()
-
-    if cleaned_cvv != "007":
-        flash("For demo payment, use CVV 007.", "error")
-        return back_to_lot()
-
-    if len(expiry) != 5 or expiry[2] != "/":
-        flash("Please enter expiry in MM/YY format.", "error")
-        return back_to_lot()
-
-    normalized_promo_code = (promo_code or "").strip().upper()
-    promo_result = apply_promo_discount(0, promo_code)
-    if promo_code and not promo_result["is_applied"]:
-        flash(
-            f"Invalid promo code. Use {FIRST_BOOKING_PROMO_CODE} or {PACE_PROMO_CODE}.",
-            "error",
-        )
-        return back_to_lot()
-
     try:
         start_local = datetime.fromisoformat(start_time_str).replace(tzinfo=user_tz)
         end_local = datetime.fromisoformat(end_time_str).replace(tzinfo=user_tz)
@@ -1947,8 +2672,24 @@ def reserve_slot(slot_id):
         return back_to_lot()
 
     if start_time < minimum_start_time:
-        flash("Start time cannot be earlier than the current time.", "error")
+        flash(
+            "Start date and time must be in the future in your time zone (not in the past).",
+            "error",
+        )
         return back_to_lot()
+
+    normalized_promo_code = (promo_code or "").strip().upper()
+    promo_probe = apply_promo_discount(0, promo_code)
+    if promo_code and not promo_probe["is_applied"]:
+        flash(
+            f"Invalid promo code. Use {FIRST_BOOKING_PROMO_CODE} or {PACE_PROMO_CODE}.",
+            "error",
+        )
+        return back_to_lot()
+
+    ensure_db_integrity_constraints()
+    ensure_reservation_approval_schema()
+    ensure_bulk_reservation_schema()
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2012,12 +2753,20 @@ def reserve_slot(slot_id):
             )
             return back_to_lot()
 
+        pay_err, cleaned_card_number = validate_demo_payment_fields(
+            cardholder_name, card_number, expiry, cvv
+        )
+        if pay_err:
+            flash(pay_err, "error")
+            return back_to_lot()
+
         if normalized_promo_code == FIRST_BOOKING_PROMO_CODE:
             cur.execute(
                 """
                 SELECT COUNT(*) AS reservation_count
                 FROM reservations
                 WHERE user_id = %s
+                  AND status = 'CONFIRMED'
                 """,
                 (session.get("user_id"),),
             )
@@ -2043,44 +2792,42 @@ def reserve_slot(slot_id):
         promo_result = apply_promo_discount(subtotal, promo_code)
         total_cost = promo_result["final_total"]
 
+        promo_to_store = (
+            promo_result["applied_code"] if promo_result.get("is_applied") else None
+        )
         cur.execute(
             """
-            INSERT INTO reservations (user_id, slot_id, start_time, end_time, status)
-            VALUES (%s, %s, %s, %s, 'CONFIRMED')
+            INSERT INTO reservations (user_id, slot_id, start_time, end_time, status, promo_code, bulk_group_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (session.get("user_id"), slot_id, start_time, end_time)
+            (
+                str(session.get("user_id")),
+                str(slot_id),
+                start_time,
+                end_time,
+                PENDING_APPROVAL_STATUS,
+                promo_to_store,
+                None,
+            ),
         )
         inserted_reservation = cur.fetchone()
-        record_transaction(
-            cur,
-            inserted_reservation["id"],
-            session.get("user_id"),
-            "CREATE_RESERVATION",
-            total_cost,
-            "SUCCESS"
-        )
         conn.commit()
 
         flash(
-            f"Demo payment processed for card ending in {cleaned_card_number[-4:]}. "
-            f"Vehicle {selected_vehicle['plate_number']}."
+            f"Request submitted for {selected_vehicle['plate_number']}. "
+            "The garage will review your times; you will see it as “Awaiting approval” on your dashboard. "
+            "Demo card ending in "
+            f"{cleaned_card_number[-4:]} will be charged when the booking is confirmed."
             + (
-                f" Promo {promo_result['applied_code']} applied "
+                f" Promo {promo_result['applied_code']} will apply if still valid at approval "
                 f"(-${promo_result['discount_amount']:.2f})."
                 if promo_result["is_applied"]
                 else ""
             ),
             "success",
         )
-        return redirect(
-            url_for(
-                "booking_receipt",
-                reservation_id=inserted_reservation["id"],
-                user_timezone=user_timezone,
-                applied_promo_code=promo_result["applied_code"],
-            )
-        )
+        return redirect(url_for("dashboard"))
 
     except psycopg2.errors.ExclusionViolation:
         conn.rollback()
@@ -2095,6 +2842,341 @@ def reserve_slot(slot_id):
     finally:
         cur.close()
         conn.close()
+
+
+@app.route("/lot/<lot_id>/reserve-bulk", methods=["POST"])
+@login_required(role="driver")
+def reserve_bulk(lot_id):
+    """Reserve multiple slots in one lot for the same window (single checkout, shared bulk_group_id)."""
+    user_timezone = request.form.get("user_timezone", "UTC").strip()
+    cardholder_name = request.form.get("cardholder_name", "").strip()
+    card_number = request.form.get("card_number", "").strip()
+    expiry = request.form.get("expiry", "").strip()
+    cvv = request.form.get("cvv", "").strip()
+
+    start_date = request.form.get("b_start_date", "").strip()
+    start_time_only = request.form.get("b_start_time_only", "").strip()
+    end_date = request.form.get("b_end_date", "").strip()
+    end_time_only = request.form.get("b_end_time_only", "").strip()
+
+    raw_slots = request.form.getlist("slot_id")
+    slot_ids = list(dict.fromkeys(s.strip() for s in raw_slots if (s or "").strip()))
+
+    start_time_str = f"{start_date}T{start_time_only}" if start_date and start_time_only else ""
+    end_time_str = f"{end_date}T{end_time_only}" if end_date and end_time_only else ""
+
+    def redirect_lot():
+        return redirect(
+            url_for(
+                "lot_details",
+                lot_id=lot_id,
+                start_time=start_time_str,
+                end_time=end_time_str,
+                user_timezone=user_timezone,
+            )
+        )
+
+    if len(slot_ids) < 1:
+        flash("Select at least one available slot for this booking.", "error")
+        return redirect_lot()
+
+    try:
+        user_tz = ZoneInfo(user_timezone)
+    except Exception:
+        user_tz = ZoneInfo("UTC")
+
+    if not start_time_str or not end_time_str:
+        flash("Provide start and end times for the group booking.", "error")
+        return redirect_lot()
+
+    try:
+        start_local = datetime.fromisoformat(start_time_str).replace(tzinfo=user_tz)
+        end_local = datetime.fromisoformat(end_time_str).replace(tzinfo=user_tz)
+    except ValueError:
+        flash("Invalid date/time format.", "error")
+        return redirect_lot()
+
+    start_time = start_local.astimezone(timezone.utc)
+    end_time = end_local.astimezone(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    minimum_start_time = now_utc + timedelta(minutes=1)
+
+    if end_time <= start_time:
+        flash("End time must be after start time.", "error")
+        return redirect_lot()
+
+    if start_time < minimum_start_time:
+        flash(
+            "Start date and time must be in the future in your time zone (not in the past).",
+            "error",
+        )
+        return redirect_lot()
+
+    pay_err, cleaned_card_number = validate_demo_payment_fields(
+        cardholder_name, card_number, expiry, cvv
+    )
+    if pay_err:
+        flash(pay_err, "error")
+        # Preserve slot + vehicle selection across redirect (URL only carries times).
+        session["bulk_reservation_payment_retry"] = {
+            "lot_id": str(lot_id),
+            "slot_vehicles": {
+                str(sid): (request.form.get(f"vehicle_for_{sid}", "") or "").strip()
+                for sid in slot_ids
+            },
+            "cardholder_name": cardholder_name,
+        }
+        return redirect_lot()
+
+    # Successful payment field validation — clear any bulk retry state for this lot.
+    br = session.get("bulk_reservation_payment_retry")
+    if br and str(br.get("lot_id")) == str(lot_id):
+        session.pop("bulk_reservation_payment_retry", None)
+
+    # Re-run idempotent DDL right before booking: some deployments skip the first
+    # before_request migration (e.g. health-only probes), leaving an old status CHECK
+    # or missing bulk_group_id / promo_code columns. Many hosted DBs require the
+    # owner to run migrations/001_reservations_approval_and_bulk.sql manually.
+    ensure_db_integrity_constraints()
+    ensure_reservation_approval_schema()
+    ensure_bulk_reservation_schema()
+
+    conn = None
+    cur = None
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    cur.execute("SELECT id FROM parking_lots WHERE id = %s", (lot_id,))
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        flash("Parking lot not found.", "error")
+        return redirect(url_for("search"))
+
+    # Pass a string: psycopg2 does not adapt uuid.UUID unless register_uuid() is used.
+    bulk_group_id = str(uuid.uuid4())
+    user_id = session.get("user_id")
+
+    try:
+        validated_rows = []
+        for sid in slot_ids:
+            vid = (request.form.get(f"vehicle_for_{sid}", "") or "").strip()
+            if not vid:
+                conn.rollback()
+                flash("Choose a vehicle for each selected slot.", "error")
+                return redirect_lot()
+
+            cur.execute(
+                """
+                SELECT id, plate_number, vehicle_type
+                FROM vehicles
+                WHERE id = %s AND user_id = %s
+                """,
+                (vid, user_id),
+            )
+            veh_row = cur.fetchone()
+            if not veh_row:
+                conn.rollback()
+                flash("One of the selected vehicles was not found.", "error")
+                return redirect_lot()
+
+            selected_vehicle_type = (veh_row["vehicle_type"] or "").strip().lower()
+
+            cur.execute(
+                """
+                SELECT
+                    ps.id,
+                    ps.lot_id,
+                    ps.label,
+                    ps.is_active,
+                    ps.status,
+                    ps.supported_vehicle_type
+                FROM parking_slots ps
+                JOIN parking_lots pl ON pl.id = ps.lot_id
+                WHERE ps.id = %s
+                """,
+                (sid,),
+            )
+            slot_record = cur.fetchone()
+            if not slot_record or str(slot_record["lot_id"]) != str(lot_id):
+                conn.rollback()
+                flash("One or more slots are not part of this lot.", "error")
+                return redirect_lot()
+
+            if not slot_record["is_active"]:
+                conn.rollback()
+                flash(f"Slot {slot_record['label']} is inactive.", "error")
+                return redirect_lot()
+
+            if slot_record["status"] != AVAILABLE_SLOT_STATUS:
+                conn.rollback()
+                flash(f"Slot {slot_record['label']} is out of service.", "error")
+                return redirect_lot()
+
+            supported = (slot_record["supported_vehicle_type"] or "").strip().lower()
+            if selected_vehicle_type != supported:
+                conn.rollback()
+                flash(
+                    f"Vehicle for slot {slot_record['label']} must match supported type "
+                    f"({slot_record['supported_vehicle_type']}).",
+                    "error",
+                )
+                return redirect_lot()
+
+            cur.execute(
+                """
+                SELECT 1
+                FROM reservations r
+                WHERE r.slot_id = %s
+                  AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
+                  AND tstzrange(r.start_time, r.end_time, '[)') &&
+                      tstzrange(%s, %s, '[)')
+                """,
+                (sid, start_time, end_time),
+            )
+            if cur.fetchone():
+                conn.rollback()
+                flash(
+                    f"Slot {slot_record['label']} is no longer available for that window.",
+                    "error",
+                )
+                return redirect_lot()
+
+            cur.execute(
+                """
+                SELECT 1
+                FROM reservations r
+                WHERE r.slot_id = %s
+                  AND r.user_id = %s
+                  AND r.status IN ('CONFIRMED', 'PENDING_APPROVAL')
+                  AND tstzrange(r.start_time, r.end_time, '[)') &&
+                      tstzrange(%s, %s, '[)')
+                """,
+                (sid, user_id, start_time, end_time),
+            )
+            if cur.fetchone():
+                conn.rollback()
+                flash(
+                    f"You already hold slot {slot_record['label']} for this time range.",
+                    "error",
+                )
+                return redirect_lot()
+
+            validated_rows.append({"slot": slot_record, "vehicle": veh_row})
+
+        for row in validated_rows:
+            slot_record = row["slot"]
+            cur.execute(
+                """
+                INSERT INTO reservations (user_id, slot_id, start_time, end_time, status, promo_code, bulk_group_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(user_id),
+                    str(slot_record["id"]),
+                    start_time,
+                    end_time,
+                    PENDING_APPROVAL_STATUS,
+                    None,
+                    bulk_group_id,
+                ),
+            )
+
+        conn.commit()
+        n = len(validated_rows)
+        plates = [
+            (r["vehicle"].get("plate_number") or "").strip()
+            for r in validated_rows
+            if r.get("vehicle")
+        ]
+        plates_display = ", ".join(dict.fromkeys(p for p in plates if p)) or "your vehicles"
+        flash(
+            f"Group request submitted for {n} slots ({plates_display}). "
+            "Each space appears as awaiting approval on your dashboard. "
+            f"Demo card ••••{cleaned_card_number[-4:]} will be charged per slot when confirmed.",
+            "success",
+        )
+        return redirect(url_for("dashboard"))
+
+    except psycopg2.errors.ExclusionViolation:
+        conn.rollback()
+        flash(
+            "A slot in your group was just booked by someone else. Refresh and try again.",
+            "error",
+        )
+        return redirect_lot()
+    except psycopg2.errors.CheckViolation as e:
+        conn.rollback()
+        print("Database error in reserve_bulk (check constraint):", e)
+        flash(
+            "Could not save the group booking: the database rejected the reservation record. "
+            "Run the SQL in migrations/001_reservations_approval_and_bulk.sql on your database (Supabase "
+            "SQL editor as owner), then try again.",
+            "error",
+        )
+        return redirect_lot()
+    except psycopg2.IntegrityError as e:
+        conn.rollback()
+        print("Database error in reserve_bulk (integrity):", repr(e))
+        flash(
+            "Could not complete the group booking (a database rule was violated). "
+            "Try a different time or refresh the page.",
+            "error",
+        )
+        return redirect_lot()
+    except psycopg2.errors.UndefinedColumn as e:
+        conn.rollback()
+        print("Database error in reserve_bulk (missing column):", e)
+        flash(
+            "The database is missing a required column (e.g. bulk_group_id or promo_code). "
+            "Run migrations/001_reservations_approval_and_bulk.sql in the SQL editor, then try again.",
+            "error",
+        )
+        return redirect_lot()
+    except psycopg2.ProgrammingError as e:
+        conn.rollback()
+        err_text = (str(e) or "").lower()
+        if "column" in err_text and "does not exist" in err_text:
+            print("Database error in reserve_bulk (missing column, programming):", e)
+            flash(
+                "The database schema is out of date. "
+                "Run migrations/001_reservations_approval_and_bulk.sql, then try again.",
+                "error",
+            )
+        else:
+            print("Database error in reserve_bulk (programming):", repr(e))
+            flash("Something went wrong while saving the group reservation.", "error")
+        return redirect_lot()
+    except psycopg2.Error as e:
+        conn.rollback()
+        pg = getattr(e, "pgcode", None)
+        d = getattr(e, "diag", None)
+        det = getattr(d, "message_primary", None) if d else None
+        print("Database error in reserve_bulk:", repr(e), "pgcode=", pg, "detail=", det)
+        if pg in ("42501", "42503"):
+            flash(
+                "The database user cannot apply required schema changes. "
+                "Have an admin run migrations/001_reservations_approval_and_bulk.sql in the SQL editor.",
+                "error",
+            )
+        else:
+            flash("Something went wrong while saving the group reservation.", "error")
+        return redirect_lot()
+    except Exception as e:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print("Non-database error in reserve_bulk:", repr(e))
+        traceback.print_exc()
+        flash("Something went wrong while saving the group reservation.", "error")
+        return redirect_lot()
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
 
 
 @app.route("/receipt/<reservation_id>")
@@ -2118,6 +3200,8 @@ def booking_receipt(reservation_id):
             r.user_id,
             r.start_time,
             r.end_time,
+            r.status,
+            r.promo_code,
             pl.id AS lot_id,
             pl.name AS lot_name,
             pl.address AS lot_address,
@@ -2138,6 +3222,12 @@ def booking_receipt(reservation_id):
         cur.close()
         conn.close()
         flash("Receipt not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    if row.get("status") != CONFIRMED_RESERVATION_STATUS:
+        cur.close()
+        conn.close()
+        flash("Receipt is available after the garage confirms your booking.", "error")
         return redirect(url_for("dashboard"))
 
     cur.execute(
@@ -2180,6 +3270,12 @@ def booking_receipt(reservation_id):
                 if inferred_percent == percent:
                     applied_promo_code = code
                     break
+    if (
+        discount_amount > 0
+        and not applied_promo_code
+        and (row.get("promo_code") or "").strip().upper() in SUPPORTED_PROMOS
+    ):
+        applied_promo_code = (row.get("promo_code") or "").strip().upper()
 
     cur.close()
     conn.close()
@@ -2252,6 +3348,21 @@ def cancel_reservation(reservation_id):
         cur.close()
         conn.close()
         flash("You can only cancel your own reservations.", "error")
+        return redirect(url_for("dashboard"))
+
+    if reservation["status"] == PENDING_APPROVAL_STATUS:
+        cur.execute(
+            """
+            UPDATE reservations
+            SET status = 'CANCELLED'
+            WHERE id = %s
+            """,
+            (reservation_id,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        flash("Pending booking request withdrawn.", "success")
         return redirect(url_for("dashboard"))
 
     if reservation["status"] != "CONFIRMED":
